@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "souli-pipeline"
+version = "0.1.0"
+description = "Souli Voice + Energy Framework batch pipeline"
+requires-python = ">=3.10"
+authors = [{name="Rohit Arora"}]
+dependencies = []
+
+[project.scripts]
+souli = "souli_pipeline.cli:app"
