@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import os
 import typer
 from rich import print
@@ -9,6 +10,7 @@ from .youtube.pipeline import run_youtube_pipeline
 from .youtube.playlist import list_playlist_videos
 from .youtube.videos_csv import load_videos_csv
 from .youtube.merge_outputs import merge_teaching_outputs
+from .retrieval.match import run_match
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -134,3 +136,50 @@ def run_all(
             print("[green]Merged (source_video):[/green]")
             for k, path in merged.items():
                 print(f" - {k}: {path}")
+
+
+@app.command("match")
+def match_cmd(
+    config: str = typer.Option(..., "--config", "-c"),
+    gold_path: str = typer.Option(..., "--gold", help="Path to gold.xlsx from energy pipeline"),
+    teaching_path: str = typer.Option(None, "--teaching", help="Path to merged_teaching_cards.xlsx or directory with teaching cards"),
+    query: str = typer.Option(..., "--query", "-q", help="User venting / problem text (e.g. I am very sad)"),
+    output: str = typer.Option("json", "--output", "-o", help="Output: json | text"),
+):
+    """
+    Diagnose user text → energy_node + framework solution + teaching content.
+    All processing is LOCAL. No data is sent to any external API (privacy-safe).
+    """
+    cfg = load_config(config)
+    nodes = cfg.energy.nodes_allowed
+    emb = cfg.retrieval.embedding_model if hasattr(cfg, "retrieval") else None
+    top_k = getattr(cfg.retrieval, "top_k_teaching", 5) if hasattr(cfg, "retrieval") else 5
+
+    result = run_match(
+        user_query=query,
+        gold_path=gold_path,
+        nodes_allowed=nodes,
+        teaching_path=teaching_path,
+        embedding_model=emb,
+        top_k_teaching=top_k,
+    )
+
+    if output == "text":
+        print("[cyan]Diagnosis[/cyan]")
+        print("  energy_node:", result["diagnosis"]["energy_node"])
+        print("  aspect:", result["diagnosis"]["aspect"])
+        print("  matched_problem:", result["diagnosis"].get("matched_problem") or "(keyword fallback)")
+        print("[cyan]Framework solution[/cyan]")
+        for k, v in (result.get("framework_solution") or {}).items():
+            if v:
+                print(f"  {k}: {v[:200]}..." if len(str(v)) > 200 else f"  {k}: {v}")
+        print("[cyan]Teaching content (top %d)[/cyan]" % top_k)
+        for i, t in enumerate(result.get("teaching_content") or [], 1):
+            print(f"  --- {i} ---")
+            for k, v in t.items():
+                if v:
+                    print(f"    {k}: {v[:150]}..." if len(str(v)) > 150 else f"    {k}: {v}")
+    else:
+        # Exclude metadata key from JSON output
+        out = {k: v for k, v in result.items() if k != "local_only"}
+        print(json.dumps(out, indent=2, ensure_ascii=False))

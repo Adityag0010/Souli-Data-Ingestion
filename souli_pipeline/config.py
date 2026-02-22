@@ -21,6 +21,8 @@ class EnergyConfig(BaseModel):
     aspects_allowed: List[str]
     nodes_allowed: List[str]
     gates: EnergyGates = Field(default_factory=EnergyGates)
+    # Optional: map Excel column names -> internal names (e.g. "Main Question" -> "Problem statement")
+    expr_column_map: Optional[Dict[str, str]] = None
 
 class ChunkingConfig(BaseModel):
     max_seconds: float = 55
@@ -62,8 +64,16 @@ class LLMConfig(BaseModel):
     adapter: str = "none"  # none | http_json | local_hf
     http_json: Optional[LLMHttpJsonConfig] = None
 
+
+class RetrievalConfig(BaseModel):
+    """Local-only retrieval: no data sent to external APIs."""
+    embedding_model: Optional[str] = "sentence-transformers/all-MiniLM-L6-v2"
+    top_k_teaching: int = 5
+
+
 class PipelineConfig(BaseModel):
     run: RunConfig = Field(default_factory=RunConfig)
     energy: EnergyConfig
     youtube: YoutubeConfig = Field(default_factory=YoutubeConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)

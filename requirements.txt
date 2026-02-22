@@ -12,3 +12,5 @@ ffmpeg-python>=0.2.0
 scikit-learn>=1.3
 numpy>=1.24
 requests>=2.31
+# Optional: for better problem matching in `souli match` (local only, no data sent out)
+# sentence-transformers>=2.2

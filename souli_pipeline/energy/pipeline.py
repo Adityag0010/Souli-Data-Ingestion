@@ -14,6 +14,11 @@ def run_energy_pipeline(cfg: PipelineConfig, excel_path: str, out_dir: str) -> T
     df_expr.columns = [str(c).strip() for c in df_expr.columns]
     df_fw.columns   = [str(c).strip() for c in df_fw.columns]
 
+    if e.expr_column_map:
+        rename = {k: v for k, v in e.expr_column_map.items() if k in df_expr.columns}
+        if rename:
+            df_expr = df_expr.rename(columns=rename)
+
     missing_expr = [c for c in e.required_expr_cols if c not in df_expr.columns]
     if missing_expr:
         raise ValueError(f"Missing in ExpressionsMapping: {missing_expr}")

@@ -5,6 +5,12 @@ run:
 energy:
   expressions_sheet: "ExpressionsMapping"
   framework_sheet: "Inner energy Framework"
+  # Map Excel column names -> internal names (for Souli_EnergyFramework_PW (1).xlsx format)
+  expr_column_map:
+    "Main Question": "Problem statement"
+    "Category": "Aspects of Woman Track"
+    "Related Inner Issues": "deeper_blocks/ pshychlogical issues"
+    "Reality Commitment Check": "Duality Check"
   required_expr_cols:
     - "Problem statement"
     - "Aspects of Woman Track"
@@ -71,3 +77,8 @@ llm:
   http_json:
     endpoint: "https://YOUR-ENDPOINT"
     timeout_s: 60
+
+# Local-only retrieval (match user venting → diagnosis + solution + teaching content). No data leaves your machine.
+retrieval:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"  # optional; omit or null = keyword fallback only
+  top_k_teaching: 5

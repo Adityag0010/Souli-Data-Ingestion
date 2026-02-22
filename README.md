@@ -57,8 +57,9 @@ souli run playlist \
 ```bash
 souli run energy \
   --config configs/pipeline.yaml \
-  --excel-path data/Souli_EnergyFramework_PW.xlsx
+  --excel-path "data/Souli_EnergyFramework_PW (1).xlsx"
 ```
+The default config supports the PW Excel format: sheets **ExpressionsMapping** (columns: Main Question, Category, Related Inner Issues, Reality Commitment Check, energy_node/…) and **Inner energy Framework**. Column mapping is in `configs/pipeline.yaml` under `energy.expr_column_map`.
 
 ### 5) Run many videos from a CSV (different data per video)
 Use a CSV with column `url` or `youtube_url`. Optional columns: `name`, `video_id`, `title` (used as `source_video` in merged outputs).
@@ -84,6 +85,36 @@ souli run all \
   --merge
 ```
 
+### 7) Match user venting → diagnosis + solution + teaching (local only)
+When someone comes to you with a problem (e.g. “I am very sad”), you:
+1. **Diagnose** their problem (which energy node: blocked, depleted, scattered, etc.)
+2. Get the **framework solution** (practices, meditations) for that node from your Excel
+3. Get **teaching content** from your YouTube pipeline output for that same node
+
+All of this runs **locally**. No user data is sent to any external API.
+
+```bash
+souli match \
+  --config configs/pipeline.yaml \
+  --gold outputs/<run_id>/energy/gold.xlsx \
+  --teaching outputs/<run_id>/youtube/merged_teaching_cards.xlsx \
+  --query "I am very sad" \
+  --output json
+```
+
+Use `--output text` for readable output. If you omit `--teaching`, you still get diagnosis + framework solution (from gold).  
+**Optional:** install `sentence-transformers` for better problem matching; otherwise keyword-based diagnosis is used (no extra deps).
+
+```bash
+pip install sentence-transformers
+```
+
+## Privacy & open-source
+
+- **No data is sent to any external LLM or API** for training or inference unless you explicitly enable and point to your own endpoint (e.g. local Ollama). Your Excel, YouTube outputs, and user queries stay on your machine.
+- **Retrieval/matching** uses optional local embeddings (`sentence-transformers`) or keyword rules only. Everything runs in-process.
+- Use only open-source models and local tools so your data is never used to train third-party models.
+
 ## Outputs
 
 All outputs go to `outputs/<run_id>/...`:
@@ -92,6 +123,7 @@ All outputs go to `outputs/<run_id>/...`:
 - **Merged** (when using `run videos` or `run all` with `--merge`):
   - `youtube/merged_teaching_ready.xlsx`, `youtube/merged_teaching_cards.xlsx` (column **source_video** = URL or name from CSV)
 - **Energy**: `energy/gold.xlsx`, `energy/reject.xlsx`
+- **Match** (diagnosis + solution + teaching): use `souli match` with paths to `gold.xlsx` and (optional) `merged_teaching_cards.xlsx`
 
 ## Docker & Cloud
 
