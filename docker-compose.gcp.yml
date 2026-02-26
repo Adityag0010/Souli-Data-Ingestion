@@ -1,0 +1,139 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Souli — GCP Docker Compose (runs on a GCE VM with NVIDIA GPU)
+#
+# Services:
+#   ollama    — Ollama LLM server (llama3.1 + qwen2.5:1.5b)
+#   qdrant    — Qdrant vector store
+#   souli     — Souli pipeline + conversation API
+#   livekit   — LiveKit SFU for voice rooms (optional, can use LiveKit Cloud instead)
+#
+# Usage on GCE VM:
+#   docker compose -f docker-compose.gcp.yml --env-file .env up -d
+#
+# First time — pull models:
+#   docker compose -f docker-compose.gcp.yml exec ollama ollama pull llama3.1
+#   docker compose -f docker-compose.gcp.yml exec ollama ollama pull qwen2.5:1.5b
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+networks:
+  souli-net:
+    driver: bridge
+
+volumes:
+  ollama-models:      # Persists pulled LLM models across container restarts
+  qdrant-storage:     # Persists Qdrant collection data
+  souli-outputs:      # Pipeline outputs (teaching_ready.xlsx, gold.xlsx, etc.)
+  souli-data:         # Input data (Excel, videos.csv)
+
+services:
+
+  # ── Ollama (LLM server) ────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: souli-ollama
+    restart: unless-stopped
+    networks:
+      - souli-net
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"          # Expose so you can also call it from outside VM
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    # GPU support — requires NVIDIA Container Toolkit on the GCE VM
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── Qdrant (vector store) ──────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: souli-qdrant
+    restart: unless-stopped
+    networks:
+      - souli-net
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    ports:
+      - "6333:6333"           # HTTP API
+      - "6334:6334"           # gRPC API
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  # ── Souli pipeline container ───────────────────────────────────────────────
+  souli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: souli-pipeline
+    restart: unless-stopped
+    networks:
+      - souli-net
+    depends_on:
+      ollama:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - souli-data:/app/data          # mount your Excel + videos.csv here
+      - souli-outputs:/app/outputs    # pipeline outputs persist here
+    environment:
+      # These override the GCP config values — set real values in .env
+      - OLLAMA_ENDPOINT=http://ollama:11434
+      - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-llama3.1}
+      - OLLAMA_TAGGER_MODEL=${OLLAMA_TAGGER_MODEL:-qwen2.5:1.5b}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-souli_chunks}
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - LIVEKIT_ROOM=${LIVEKIT_ROOM:-souli-room}
+      - SOULI_OUTPUTS_DIR=/app/outputs
+      - SOULI_LOG_LEVEL=${SOULI_LOG_LEVEL:-INFO}
+    # Keep alive so you can exec into it for CLI commands
+    command: ["tail", "-f", "/dev/null"]
+    healthcheck:
+      test: ["CMD", "souli", "health"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 30s
+
+  # ── LiveKit SFU (self-hosted, optional) ───────────────────────────────────
+  # Remove this service and use LiveKit Cloud (livekit.io) instead for simplicity.
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: souli-livekit
+    restart: unless-stopped
+    networks:
+      - souli-net
+    ports:
+      - "7880:7880"           # HTTP + WebSocket
+      - "7881:7881"           # TURN/TCP
+      - "50100-50200:50100-50200/udp"   # WebRTC UDP range
+    environment:
+      - LIVEKIT_CONFIG_BODY=${LIVEKIT_CONFIG_BODY}
+    volumes:
+      - ./configs/livekit.yaml:/etc/livekit.yaml:ro
+    command: ["--config", "/etc/livekit.yaml"]
+    profiles:
+      - livekit-selfhosted      # Only starts if: docker compose --profile livekit-selfhosted up

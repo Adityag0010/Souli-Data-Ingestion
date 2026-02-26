@@ -1,3 +1,4 @@
+# ── Core pipeline ──────────────────────────────────────────────────────────────
 pandas>=2.0
 openpyxl>=3.1
 rapidfuzz>=3.5
@@ -5,12 +6,29 @@ typer>=0.12
 pydantic>=2.6
 pyyaml>=6.0
 rich>=13.7
+requests>=2.31
+
+# ── YouTube / transcript ───────────────────────────────────────────────────────
 yt-dlp>=2024.7.0
 webvtt-py>=0.5
 faster-whisper>=1.0.0
 ffmpeg-python>=0.2.0
+
+# ── Embeddings (local, no data leaves machine) ────────────────────────────────
+sentence-transformers>=2.2
 scikit-learn>=1.3
 numpy>=1.24
-requests>=2.31
-# Optional: for better problem matching in `souli match` (local only, no data sent out)
-# sentence-transformers>=2.2
+
+# ── Qdrant vector store (local Docker or in-memory) ───────────────────────────
+qdrant-client>=1.9.0
+
+# ── Voice pipeline ─────────────────────────────────────────────────────────────
+edge-tts>=6.1.9
+
+# ── LiveKit (uncomment when deploying voice pipeline) ─────────────────────────
+# livekit>=0.11
+# livekit-agents>=0.8
+
+# ── Optional cloud STT (uncomment if using Deepgram) ──────────────────────────
+# deepgram-sdk>=3.0
+# sounddevice   # for souli voice --local (mic/speaker test)

@@ -1,0 +1,15 @@
+# LiveKit server config (self-hosted on GCE)
+# Replace YOUR_GCE_EXTERNAL_IP with the static external IP of your GCE VM
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50100
+  port_range_end: 50200
+  use_external_ip: true
+
+keys:
+  devkey: secret   # CHANGE THIS — set matching LIVEKIT_API_KEY / LIVEKIT_API_SECRET in .env
+
+logging:
+  level: info
+  json: false

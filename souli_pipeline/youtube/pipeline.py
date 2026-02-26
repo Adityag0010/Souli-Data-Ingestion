@@ -33,7 +33,13 @@ def _explode_chunks(df_chunks: pd.DataFrame, overlap_words: int, max_words: int)
             })
     return pd.DataFrame(rows)
 
-def run_youtube_pipeline(cfg: PipelineConfig, youtube_url: str, out_dir: str) -> Dict[str, str]:
+def run_youtube_pipeline(
+    cfg: PipelineConfig,
+    youtube_url: str,
+    out_dir: str,
+    source_label: str = "",
+    tag_energy: bool = True,
+) -> Dict[str, str]:
     y = cfg.youtube
     os.makedirs(out_dir, exist_ok=True)
 
@@ -87,6 +93,35 @@ def run_youtube_pipeline(cfg: PipelineConfig, youtube_url: str, out_dir: str) ->
         (df_keep["meaning_score"] >= y.scoring.meaning_min_score) &
         (df_keep["junk_score"] <= y.scoring.junk_drop_threshold)
     ].copy()
+
+    # Attach source info
+    if source_label:
+        df_ready["source_video"] = source_label
+    if youtube_url:
+        df_ready["youtube_url"] = youtube_url
+
+    # ---------------------------------------------------------------
+    # Qwen energy node tagging (runs locally via Ollama)
+    # ---------------------------------------------------------------
+    if tag_energy and not df_ready.empty:
+        try:
+            from .energy_tagger import tag_dataframe
+            conv = cfg.conversation
+            logger.info(
+                "Tagging %d chunks with energy nodes via %s ...",
+                len(df_ready),
+                conv.tagger_model,
+            )
+            df_ready = tag_dataframe(
+                df_ready,
+                text_col="text",
+                ollama_model=conv.tagger_model,
+                ollama_endpoint=conv.ollama_endpoint,
+            )
+            logger.info("Energy tagging done.")
+        except Exception as exc:
+            logger.warning("Energy tagging skipped: %s", exc)
+
     path_ready = os.path.join(out_dir, "teaching_ready.xlsx")
     df_ready.to_excel(path_ready, index=False)
 
@@ -98,7 +133,7 @@ def run_youtube_pipeline(cfg: PipelineConfig, youtube_url: str, out_dir: str) ->
         "teaching_ready": path_ready,
     }
 
-    # Optional LLM extraction
+    # Optional LLM teaching card extraction
     llm = make_llm(cfg)
     if llm:
         cards = []
@@ -107,6 +142,14 @@ def run_youtube_pipeline(cfg: PipelineConfig, youtube_url: str, out_dir: str) ->
             card["_start"] = float(r["start"])
             card["_end"] = float(r["end"])
             card["_words"] = int(r["words"])
+            if "energy_node" in r.index:
+                card["energy_node"] = str(r["energy_node"])
+            if "energy_node_reason" in r.index:
+                card["energy_node_reason"] = str(r["energy_node_reason"])
+            if source_label:
+                card["source_video"] = source_label
+            if youtube_url:
+                card["youtube_url"] = youtube_url
             cards.append(card)
         df_cards = pd.DataFrame(cards)
         path_cards = os.path.join(out_dir, "teaching_cards.xlsx")

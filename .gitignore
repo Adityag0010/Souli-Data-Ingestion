@@ -1,6 +1,25 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Environment / secrets
+.env
+
+# Outputs and data
 outputs/
-data/
+souli_pipeline/data/*.xlsx
+souli_pipeline/data/videos.csv
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
 .DS_Store
+Thumbs.db

@@ -1,11 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Souli Pipeline — GCP / Docker Compose config
+#
+# Service hostnames match docker-compose.gcp.yml service names.
+# Sensitive values (API keys, secrets) come from .env — never hardcode them.
+# ─────────────────────────────────────────────────────────────────────────────
+
 run:
-  outputs_dir: outputs
-  max_workers: 2
+  outputs_dir: /app/outputs   # bind-mounted persistent disk on GCE
+  max_workers: 4
 
 energy:
   expressions_sheet: "ExpressionsMapping"
   framework_sheet: "Inner energy Framework"
-  # Map Excel column names -> internal names (for Souli_EnergyFramework_PW (1).xlsx format)
   expr_column_map:
     "Main Question": "Problem statement"
     "Category": "Aspects of Woman Track"
@@ -71,52 +77,42 @@ youtube:
     meaning_min_score: 3
     junk_drop_threshold: 7
 
-# LLM adapter for teaching card extraction (optional, disabled by default)
-# Switch adapter to "ollama" to use local Ollama for card extraction
+# LLM via Ollama container (service name "ollama" in docker-compose)
 llm:
-  enabled: false
-  adapter: "none"   # "none" | "http_json" | "ollama"
-  http_json:
-    endpoint: "https://YOUR-ENDPOINT"
-    timeout_s: 60
+  enabled: false        # set true to use Ollama for teaching card extraction
+  adapter: "ollama"
   ollama:
     model: "llama3.1"
-    endpoint: "http://localhost:11434"
-    timeout_s: 120
+    endpoint: "http://ollama:11434"   # docker-compose service name
+    timeout_s: 180
     temperature: 0.7
     num_ctx: 4096
 
-# Local-only retrieval via Qdrant + sentence-transformers. No data leaves your machine.
+# Qdrant vector store — "qdrant" service in docker-compose
 retrieval:
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   top_k_teaching: 5
-  qdrant_host: "localhost"
+  qdrant_host: "qdrant"            # docker-compose service name
   qdrant_port: 6333
   qdrant_collection: "souli_chunks"
 
-# Conversation engine settings (Ollama llama3.1 + Qwen tagger)
+# Conversation engine — talks to Ollama container
 conversation:
-  # Main counselor model (Ollama)
   chat_model: "llama3.1"
-  # Small fast model for energy node tagging of YouTube chunks
   tagger_model: "qwen2.5:1.5b"
-  ollama_endpoint: "http://localhost:11434"
-  # Number of YouTube RAG chunks to inject into each counselor response
+  ollama_endpoint: "http://ollama:11434"   # docker-compose service name
   rag_top_k: 3
-  # How many turns before nudging user toward solution/venting choice
   max_intake_turns: 4
   temperature: 0.75
 
-# Voice pipeline (LiveKit + STT + TTS)
+# Voice pipeline — LiveKit Cloud (free tier) or self-hosted on GCE
+# Values injected from .env via env vars: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
 voice:
-  livekit_url: "ws://localhost:7880"
-  livekit_api_key: "devkey"
-  livekit_api_secret: "secret"
+  livekit_url: "wss://YOUR_PROJECT.livekit.cloud"   # overridden by LIVEKIT_URL env var
+  livekit_api_key: "YOUR_KEY"                        # overridden by LIVEKIT_API_KEY
+  livekit_api_secret: "YOUR_SECRET"                  # overridden by LIVEKIT_API_SECRET
   room_name: "souli-room"
-  # STT: "whisper" (local, no API key) | "deepgram" (cloud, needs DEEPGRAM_API_KEY)
   stt_provider: "whisper"
   whisper_model: "base"
-  # TTS: "edge_tts" (free Microsoft) | "piper" (fully local)
   tts_provider: "edge_tts"
-  # Indian English female voice — warm and natural
   tts_voice: "en-IN-NeerjaNeural"
