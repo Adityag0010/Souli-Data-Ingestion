@@ -210,6 +210,12 @@ def chat(req: ChatRequest):
     )
 
 
+
+
+def _safe_header(text: str) -> str:
+    """Strip non-latin-1 chars so HTTP headers don't blow up on em-dashes, smart quotes etc."""
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
 # ── 2. Voice Chat ─────────────────────────────────────────────────────────────
 
 @app.post(
@@ -281,10 +287,10 @@ async def voice(
         content=audio_bytes,
         media_type="audio/mpeg",
         headers={
-            "X-Transcript": transcript,
-            "X-Reply": reply,
+            "X-Transcript": _safe_header(transcript),
+            "X-Reply": _safe_header(reply),
             "X-Phase": engine.state.phase,
-            "X-Energy-Node": diag.get("energy_node") or "",
+            "X-Energy-Node": _safe_header(diag.get("energy_node") or ""),
             "X-Turn-Count": str(engine.state.turn_count),
             "Access-Control-Expose-Headers": (
                 "X-Transcript, X-Reply, X-Phase, X-Energy-Node, X-Turn-Count"
