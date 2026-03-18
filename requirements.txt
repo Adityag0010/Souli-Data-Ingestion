@@ -32,6 +32,12 @@ livekit-agents>=0.8
 # ── Streamlit UI ──────────────────────────────────────────────────────────────
 streamlit>=1.31.0
 
+# ── API server ───────────────────────────────
+fastapi>=0.110.0
+uvicorn>=0.29.0
+gunicorn>=22.0.0        
+python-multipart>=0.0.9   
+
 # ── Optional cloud STT (uncomment if using Deepgram) ──────────────────────────
 # deepgram-sdk>=3.0
 # sounddevice   # for souli voice --local (mic/speaker test)

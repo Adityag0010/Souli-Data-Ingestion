@@ -2,7 +2,8 @@
         gcp-vm gcp-setup gcp-deploy gcp-ssh gcp-logs gcp-status \
         gcp-pipeline gcp-ingest gcp-chat \
         compose-up compose-down compose-ps compose-logs \
-        pull-models build
+        pull-models build \
+        api api-logs api-test
 
 # ── Local dev ─────────────────────────────────────────────────────────────────
 install:
@@ -17,9 +18,17 @@ lint:
 run:
 	souli --help
 
-# ── Docker Compose (GCP / local with GPU) ────────────────────────────────────
+# ── Run API locally (for development) ────────────────────────────────────────
+api:
+	uvicorn souli_pipeline.api:app --host 0.0.0.0 --port 8000 --reload
+
+# Quick health check against local API
+api-test:
+	curl -s http://localhost:8000/health | python3 -m json.tool
+
+# ── Docker Compose ────────────────────────────────────────────────────────────
 build:
-	docker compose -f docker-compose.gcp.yml build souli
+	docker compose -f docker-compose.gcp.yml build
 
 compose-up:
 	docker compose -f docker-compose.gcp.yml --env-file .env up -d
@@ -33,15 +42,35 @@ compose-ps:
 compose-logs:
 	docker compose -f docker-compose.gcp.yml logs -f --tail=100
 
+# Stream logs for just the API container
+api-logs:
+	docker compose -f docker-compose.gcp.yml logs -f souli-api
+
 pull-models:
 	@echo "Pulling llama3.1 and qwen2.5:1.5b into Ollama..."
 	docker compose -f docker-compose.gcp.yml exec ollama ollama pull llama3.1
 	docker compose -f docker-compose.gcp.yml exec ollama ollama pull qwen2.5:1.5b
 
+
+
+
+# Dynamic IP fetching and API testing
+get-ip:
+	@gcloud compute instances describe $(GCE_VM_NAME) \
+	  --zone=$(GCE_ZONE) --project=$(GCE_PROJECT) \
+	  --format="get(networkInterfaces[0].accessConfigs[0].natIP)"
+
+api-test-gcp:
+	$(eval VM_IP := $(shell gcloud compute instances describe $(GCE_VM_NAME) \
+	  --zone=$(GCE_ZONE) --project=$(GCE_PROJECT) \
+	  --format="get(networkInterfaces[0].accessConfigs[0].natIP)"))
+	@echo "Testing API at http://$(VM_IP):8000"
+	curl -s http://$(VM_IP):8000/health | python3 -m json.tool
+
 # ── GCP VM management ─────────────────────────────────────────────────────────
-# Load env vars from .env
 include .env
 export
+
 
 gcp-vm:
 	@echo "Creating GCE VM..."
@@ -62,6 +91,10 @@ gcp-ssh:
 gcp-logs:
 	gcloud compute ssh $(GCE_VM_NAME) --zone $(GCE_ZONE) --project $(GCE_PROJECT) \
 	    -- 'cd /opt/souli && docker compose -f docker-compose.gcp.yml logs -f --tail=100'
+
+gcp-api-logs:
+	gcloud compute ssh $(GCE_VM_NAME) --zone $(GCE_ZONE) --project $(GCE_PROJECT) \
+	    -- 'cd /opt/souli && docker compose -f docker-compose.gcp.yml logs -f souli-api'
 
 gcp-status:
 	gcloud compute ssh $(GCE_VM_NAME) --zone $(GCE_ZONE) --project $(GCE_PROJECT) \
@@ -95,5 +128,5 @@ gcp-start-vm:
 	gcloud compute instances start $(GCE_VM_NAME) --zone $(GCE_ZONE) --project $(GCE_PROJECT)
 
 gcp-stop-vm:
-	@echo "Stopping VM to save costs (you won't be charged for compute while stopped)..."
+	@echo "Stopping VM to save costs..."
 	gcloud compute instances stop $(GCE_VM_NAME) --zone $(GCE_ZONE) --project $(GCE_PROJECT)
