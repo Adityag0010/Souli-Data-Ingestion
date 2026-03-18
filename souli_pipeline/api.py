@@ -276,7 +276,7 @@ async def voice(
     # TTS: synthesize reply to audio
     try:
         tts = _get_tts()
-        audio_bytes = tts.synthesize(reply)
+        audio_bytes = await tts.synthesize_async(response)
     except Exception as exc:
         logger.error("TTS error: %s", exc)
         # Don't fail the whole request — return the text in headers even if TTS breaks
