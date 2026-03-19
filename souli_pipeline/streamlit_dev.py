@@ -9,8 +9,6 @@ Two-column layout:
                  and a standalone Qdrant inspector
   RIGHT (60%)  — normal chat UI (text + voice tabs)
 
-Drop the instrumented engine.py alongside this file as:
-  souli_pipeline/conversation/engine.py
 """
 from __future__ import annotations
 
@@ -740,34 +738,34 @@ with right_col:
 
     # ── Text Chat ─────────────────────────────────────────────────────────────
     with chat_tab:
-        # Render existing messages
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.write(msg["content"])
+        # Fixed-height scrollable message area — old messages scroll up
+        msg_box = st.container(height=460, border=False)
+        with msg_box:
+            for msg in st.session_state.messages:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
 
+        # Input lives OUTSIDE the scroll box so it stays pinned at the bottom
         if user_input := st.chat_input("Share what's on your mind...", key="text_input"):
             st.session_state.messages.append({"role": "user", "content": user_input})
-            with st.chat_message("user"):
-                st.write(user_input)
-
-            with st.chat_message("assistant"):
-                placeholder = st.empty()
-                placeholder.markdown("_Souli is with you..._")
+            with st.spinner("Souli is with you…"):
                 full_response, _ = run_turn(user_input)
-                placeholder.write(full_response)
-
             st.session_state.messages.append({"role": "assistant", "content": full_response})
-            st.rerun()   # rerun so debug panel updates
+            st.rerun()   # rerun so debug panel updates too
 
     # ── Voice Chat ────────────────────────────────────────────────────────────
     with voice_tab:
-        for msg in st.session_state.voice_messages:
-            with st.chat_message(msg["role"]):
-                st.write(msg["content"])
-                if msg["role"] == "assistant" and "audio" in msg:
-                    st.audio(msg["audio"], format="audio/mp3")
+        # Fixed-height scrollable message area
+        voice_box = st.container(height=380, border=False)
+        with voice_box:
+            for msg in st.session_state.voice_messages:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+                    if msg["role"] == "assistant" and "audio" in msg:
+                        st.audio(msg["audio"], format="audio/mp3")
 
-        audio_input = st.audio_input("Press to record", key="voice_input")
+        # Mic + type input pinned below the scroll box
+        audio_input = st.audio_input("🎙️ Press to record", key="voice_input")
         if audio_input is not None:
             with st.spinner("Transcribing..."):
                 stt = get_stt()

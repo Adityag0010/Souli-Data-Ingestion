@@ -202,6 +202,8 @@ def query_chunks(
 
     Returns list of dicts with keys: text, energy_node, reason, source_video,
     youtube_url, score.
+
+    Compatible with both qdrant-client >= 1.7.4 (query_points) and older (search).
     """
     from qdrant_client.models import Filter, FieldCondition, MatchValue
 
@@ -224,17 +226,39 @@ def query_chunks(
             must=[FieldCondition(key=F_NODE, match=MatchValue(value=energy_node))]
         )
 
-    results = client.search(
-        collection_name=collection,
-        query_vector=query_vec,
-        query_filter=query_filter,
-        limit=top_k,
-        score_threshold=score_threshold,
-        with_payload=True,
-    )
+    # ── API compatibility: query_points (new) vs search (old) ──────────────
+    raw_results = []
+    try:
+        # qdrant-client >= 1.7.4 — preferred API
+        response = client.query_points(
+            collection_name=collection,
+            query=query_vec,
+            query_filter=query_filter,
+            limit=top_k,
+            score_threshold=score_threshold,
+            with_payload=True,
+        )
+        raw_results = response.points
+    except AttributeError:
+        # Fallback for older qdrant-client that still has .search()
+        try:
+            raw_results = client.search(
+                collection_name=collection,
+                query_vector=query_vec,
+                query_filter=query_filter,
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+            )
+        except Exception as exc:
+            logger.warning("Qdrant search fallback failed: %s", exc)
+            return []
+    except Exception as exc:
+        logger.warning("Qdrant query_points failed: %s", exc)
+        return []
 
     out = []
-    for r in results:
+    for r in raw_results:
         p = r.payload or {}
         out.append(
             {
