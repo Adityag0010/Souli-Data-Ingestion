@@ -210,6 +210,12 @@ def chat(req: ChatRequest):
     )
 
 
+
+
+def _safe_header(text: str) -> str:
+    """Strip non-latin-1 chars so HTTP headers don't blow up on em-dashes, smart quotes etc."""
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
 # ── 2. Voice Chat ─────────────────────────────────────────────────────────────
 
 @app.post(
@@ -270,21 +276,21 @@ async def voice(
     # TTS: synthesize reply to audio
     try:
         tts = _get_tts()
-        audio_bytes = tts.synthesize(reply)
+        audio_bytes = await tts.synthesize_async(reply)
     except Exception as exc:
         logger.error("TTS error: %s", exc)
         # Don't fail the whole request — return the text in headers even if TTS breaks
-        audio_bytes = b""
+        audio_bytes = b"not able to synthesize the audio do check api dot py"
 
     diag = engine.diagnosis_summary
     return Response(
         content=audio_bytes,
         media_type="audio/mpeg",
         headers={
-            "X-Transcript": transcript,
-            "X-Reply": reply,
+            "X-Transcript": _safe_header(transcript),
+            "X-Reply": _safe_header(reply),
             "X-Phase": engine.state.phase,
-            "X-Energy-Node": diag.get("energy_node") or "",
+            "X-Energy-Node": _safe_header(diag.get("energy_node") or ""),
             "X-Turn-Count": str(engine.state.turn_count),
             "Access-Control-Expose-Headers": (
                 "X-Transcript, X-Reply, X-Phase, X-Energy-Node, X-Turn-Count"
@@ -363,7 +369,8 @@ def health():
     # Check Ollama
     try:
         from souli_pipeline.llm.ollama import OllamaLLM
-        llm = OllamaLLM()
+        ollama_endpoint = os.environ.get("OLLAMA_ENDPOINT", "http://localhost:11434")
+        llm = OllamaLLM(endpoint=ollama_endpoint)
         ollama_status = "ok" if llm.is_available() else "unreachable"
     except Exception:
         ollama_status = "error"
