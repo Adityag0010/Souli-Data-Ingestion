@@ -153,6 +153,32 @@ services:
       retries: 3
       start_period: 30s
 
+  souli-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: souli-dev-ui
+    restart: unless-stopped
+    networks:
+      - souli-net
+    depends_on:
+      ollama:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - souli-data:/app/data
+      - souli-outputs:/app/outputs
+    environment:
+      - OLLAMA_ENDPOINT=http://ollama:11434
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-souli_chunks}
+      - SOULI_LOG_LEVEL=DEBUG
+    command: [ "streamlit", "run", "/app/souli_pipeline/streamlit_dev.py", "--server.port=8502", "--server.address=0.0.0.0" ]
+    ports:
+      - "8502:8502"
+
   # ── LiveKit SFU (self-hosted, optional) ───────────────────────────────────
   livekit:
     image: livekit/livekit-server:latest
