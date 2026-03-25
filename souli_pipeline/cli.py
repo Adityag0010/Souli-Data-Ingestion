@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import os
 import asyncio
+import sys
 import typer
 from rich import print
 from .config_loader import load_config

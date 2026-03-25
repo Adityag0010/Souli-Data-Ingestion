@@ -23,6 +23,11 @@ from io import StringIO
 from typing import Any
 
 
+OLLAMA_ENDPOINT = os.environ.get("OLLAMA_ENDPOINT", "http://localhost:11434")
+QDRANT_HOST     = os.environ.get("QDRANT_HOST",     "localhost")
+QDRANT_PORT     = int(os.environ.get("QDRANT_PORT", "6333"))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,7 +60,8 @@ def _check_system_health():
         st.markdown("**Ollama**")
         try:
             import requests
-            r = requests.get("http://localhost:11434/api/tags", timeout=4)
+            # r = requests.get("http://localhost:11434/api/tags", timeout=4)
+            r = requests.get(f"{OLLAMA_ENDPOINT}/api/tags", timeout=4)
             if r.status_code == 200:
                 models = [m["name"] for m in r.json().get("models", [])]
                 _ok("Ollama is running")
@@ -80,7 +86,8 @@ def _check_system_health():
         st.markdown("**Qdrant**")
         try:
             from qdrant_client import QdrantClient
-            client = QdrantClient(host="localhost", port=6333, timeout=3)
+            # client = QdrantClient(host="localhost", port=6333, timeout=3)
+            client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, timeout=3)
             collections = [c.name for c in client.get_collections().collections]
             _ok("Qdrant server is reachable")
             st.caption(f"Collections: `{'`, `'.join(collections) if collections else 'none'}`")
@@ -365,7 +372,7 @@ def _check_conversation_state():
         try:
             import requests
             ollama_up = requests.get(
-                "http://localhost:11434/api/tags", timeout=3
+                f"{OLLAMA_ENDPOINT}/api/tags", timeout=3
             ).status_code == 200
         except Exception:
             ollama_up = False

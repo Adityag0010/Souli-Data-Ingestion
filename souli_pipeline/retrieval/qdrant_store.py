@@ -8,7 +8,7 @@ Requirements:
     pip install qdrant-client sentence-transformers
 """
 from __future__ import annotations
-
+import os
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
@@ -16,6 +16,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
 
 # Qdrant payload field names
 F_TEXT = "text"
@@ -192,8 +195,8 @@ def query_chunks(
     energy_node: Optional[str] = None,
     top_k: int = 3,
     embedding_model: str = _DEFAULT_MODEL,
-    host: str = "localhost",
-    port: int = 6333,
+    host: str = QDRANT_HOST,
+    port: int = QDRANT_PORT,
     score_threshold: float = 0.25,
 ) -> List[Dict[str, Any]]:
     """
