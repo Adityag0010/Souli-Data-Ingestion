@@ -113,7 +113,8 @@ services:
     environment:
       <<: *souli-env
     # ← This line tells Docker what to RUN for this service
-    command: [ "streamlit", "run", "/app/souli_pipeline/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0" ]
+    # command: [ "streamlit", "run", "/app/souli_pipeline/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0" ]
+    command: [ "streamlit", "run", "/app/app.py", "--server.port=8501", "--server.address=0.0.0.0" ]
     ports:
       - "8501:8501"
     healthcheck:
@@ -141,8 +142,6 @@ services:
     volumes: *souli-volumes
     environment:
       <<: *souli-env
-    # ← This is what makes this service different from 'souli' above
-    #   Same Docker image, different command = FastAPI instead of Streamlit
     command: [ "gunicorn", "souli_pipeline.api:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "3", "--bind", "0.0.0.0:8000", "--timeout", "120" ]
     ports:
       - "8000:8000" # Mobile app calls http://<VM_IP>:8000
