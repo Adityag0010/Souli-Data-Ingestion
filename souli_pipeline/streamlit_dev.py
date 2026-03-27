@@ -48,18 +48,70 @@ st.set_page_config(
 st.markdown("""
 <style>
 /* ── overall ── */
-[data-testid="stAppViewContainer"] { background: #0d0f14; }
-[data-testid="stMain"] { background: #0d0f14; }
+[data-testid="stAppViewContainer"] { background: #0f1117; }
+[data-testid="stMain"] { background: #0f1117; }
 section[data-testid="stSidebar"] { display: none; }
 
-/* ── typography ── */
-body, p, div, span { color: #d0d6e0; }
-h1, h2, h3, h4 { color: #e8ecf4; }
+/* ── base typography — keep all text legible ── */
+body, p, div, span, label { color: #cdd5e0 !important; }
+h1, h2, h3, h4 { color: #edf0f7 !important; }
+.stMarkdown p, .stMarkdown li { color: #cdd5e0 !important; }
+
+/* ── streamlit native widget labels ── */
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] label,
+label { color: #b0bdd0 !important; font-size: 0.82rem !important; }
+
+/* ── metric labels & values ── */
+[data-testid="stMetricLabel"] { color: #8fa3bb !important; }
+[data-testid="stMetricValue"] { color: #edf0f7 !important; }
+
+/* ── caption / st.caption ── */
+[data-testid="stCaptionContainer"] p { color: #8fa3bb !important; }
+
+/* ── input fields ── */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextArea"] textarea {
+    background: #1a2035 !important;
+    color: #e0e7f0 !important;
+    border: 1px solid #2e3a50 !important;
+    border-radius: 6px !important;
+}
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stTextArea"] textarea::placeholder {
+    color: #5a6a80 !important;
+}
+
+/* ── selectbox / radio ── */
+[data-testid="stSelectbox"] > div > div {
+    background: #1a2035 !important;
+    border: 1px solid #2e3a50 !important;
+    color: #e0e7f0 !important;
+}
+[data-testid="stRadio"] label { color: #b8c8dc !important; }
+[data-testid="stRadio"] p     { color: #b8c8dc !important; }
+
+/* ── slider ── */
+[data-testid="stSlider"] [data-testid="stWidgetLabel"] p { color: #b0bdd0 !important; }
+
+/* ── expander header ── */
+[data-testid="stExpander"] summary {
+    color: #c0cce0 !important;
+    background: #161d2e !important;
+    border: 1px solid #253045 !important;
+    border-radius: 6px !important;
+}
+[data-testid="stExpander"] summary:hover { border-color: #3a5080 !important; }
+
+/* ── tabs ── */
+[data-testid="stTabs"] [data-testid="stTab"] p { color: #8fa3bb !important; }
+[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"] p { color: #7eb8f7 !important; }
 
 /* ── left panel container ── */
 .debug-panel {
-    background: #111318;
-    border-right: 1px solid #1e2230;
+    background: #13181f;
+    border-right: 1px solid #252e40;
     min-height: 100vh;
     padding: 0 0 40px 0;
 }
@@ -70,10 +122,10 @@ h1, h2, h3, h4 { color: #e8ecf4; }
     font-weight: 700;
     letter-spacing: 1.5px;
     text-transform: uppercase;
-    color: #4a5568;
+    color: #6b85a8 !important;
     margin: 18px 0 6px 0;
     padding-bottom: 4px;
-    border-bottom: 1px solid #1e2230;
+    border-bottom: 1px solid #252e40;
 }
 
 /* ── badges ── */
@@ -93,21 +145,35 @@ h1, h2, h3, h4 { color: #e8ecf4; }
 .badge-llm      { background: #0e2230; color: #38bdf8; }
 .badge-ok       { background: #102a1a; color: #4ade80; }
 .badge-warn     { background: #2a1a08; color: #fb923c; }
-.badge-neutral  { background: #1e2230; color: #94a3b8; }
+.badge-neutral  { background: #1e2a3a; color: #94a3b8; }
+
+/* ── kb selector pill ── */
+.kb-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #1a2640;
+    border: 1px solid #2e4060;
+    border-radius: 20px;
+    padding: 3px 12px;
+    font-size: 0.75rem;
+    color: #7eb8f7;
+    margin-bottom: 8px;
+}
 
 /* ── rag chunk card ── */
 .rag-card {
-    background: #161b26;
-    border: 1px solid #1e2a3a;
+    background: #161d2e;
+    border: 1px solid #253045;
     border-radius: 6px;
     padding: 10px 12px;
     margin: 6px 0;
     font-size: 0.78rem;
 }
-.rag-score   { color: #38bdf8; font-weight: 700; }
-.rag-node    { color: #56c785; font-size: 0.7rem; }
-.rag-source  { color: #94a3b8; font-size: 0.68rem; }
-.rag-text    { color: #c8d0dc; line-height: 1.5; margin-top: 5px; }
+.rag-score  { color: #38bdf8; font-weight: 700; }
+.rag-node   { color: #56c785; font-size: 0.7rem; }
+.rag-source { color: #9ab0c8; font-size: 0.68rem; }
+.rag-text   { color: #cdd5e0; line-height: 1.5; margin-top: 5px; }
 
 /* ── phase timeline ── */
 .phase-step {
@@ -116,38 +182,52 @@ h1, h2, h3, h4 { color: #e8ecf4; }
     gap: 4px;
     font-size: 0.72rem;
 }
-.phase-arrow { color: #4a5568; margin: 0 3px; }
+.phase-arrow { color: #4a6080; margin: 0 3px; }
 
 /* ── turn row in history ── */
 .turn-row {
-    background: #141820;
-    border: 1px solid #1e2230;
+    background: #161d2e;
+    border: 1px solid #253045;
     border-radius: 5px;
     padding: 7px 10px;
     margin: 4px 0;
     font-size: 0.76rem;
     cursor: pointer;
 }
-.turn-row:hover { border-color: #334466; }
+.turn-row:hover { border-color: #3a5580; }
 
 /* ── chat bubble tweaks ── */
 [data-testid="stChatMessage"] { background: transparent !important; }
 
 /* ── info boxes ── */
 .info-box {
-    background: #141820;
-    border: 1px solid #1e2230;
+    background: #161d2e;
+    border: 1px solid #253045;
     border-radius: 6px;
     padding: 10px 14px;
     margin: 6px 0;
     font-size: 0.8rem;
+    color: #cdd5e0;
 }
 
 /* ── mono code ── */
 .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #7dd3fc; }
 
 /* ── divider ── */
-.dbg-divider { border: none; border-top: 1px solid #1e2230; margin: 12px 0; }
+.dbg-divider { border: none; border-top: 1px solid #252e40; margin: 12px 0; }
+
+/* ── persona box ── */
+.persona-box {
+    background: #0e1a2e;
+    border: 1px solid #1e3a5a;
+    border-left: 3px solid #38bdf8;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.75rem;
+    color: #b8d0e8;
+    white-space: pre-wrap;
+    line-height: 1.6;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -493,10 +573,43 @@ def render_qdrant_inspector(cfg):
     st.markdown("### 🔍 Qdrant Inspector")
     st.caption("Run queries directly against your vector store, independent of the conversation.")
 
+    # ── Knowledge Base selector ───────────────────────────────────────────────
+    kb_choice = st.radio(
+        "Knowledge Base",
+        options=["Current (souli_chunks)", "Improved (souli_chunks_improved)"],
+        horizontal=True,
+        key="kb_selector",
+    )
+    collection_to_query = (
+        "souli_chunks_improved"
+        if "Improved" in kb_choice
+        else "souli_chunks"
+    )
+
+    # Show coach persona when improved KB is selected
+    if "Improved" in kb_choice:
+        persona_path = "data/coach_persona.txt"
+        if os.path.exists(persona_path):
+            with st.expander("🎭 Coach Persona (used in system prompt)", expanded=False):
+                with open(persona_path) as f:
+                    st.markdown(
+                        f'<div class="persona-box">{f.read()}</div>',
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.caption(
+                "⚠️ No `coach_persona.txt` found — run the improved pipeline on at least one video."
+            )
+
+    st.markdown('<hr class="dbg-divider"/>', unsafe_allow_html=True)
+
+    # ── Query inputs ─────────────────────────────────────────────────────────
     col1, col2 = st.columns([3, 1])
     with col1:
-        query_text = st.text_area("Query text", height=80,
-                                  placeholder="Type any text to search for similar chunks...")
+        query_text = st.text_area(
+            "Query text", height=80,
+            placeholder="Type any text to search for similar chunks...",
+        )
     with col2:
         node_options = ["(no filter)"] + (cfg.energy.nodes_allowed if cfg else [
             "blocked_energy", "depleted_energy", "scattered_energy",
@@ -506,13 +619,27 @@ def render_qdrant_inspector(cfg):
         top_k = st.slider("Top K", 1, 15, 5)
 
     col_a, col_b, col_c = st.columns(3)
+    r = cfg.retrieval if cfg else None
     with col_a:
-        r = cfg.retrieval if cfg else None
-        host = st.text_input("Qdrant host", value=r.qdrant_host if r else "localhost")
+        qdrant_host = st.text_input("Qdrant host", value=r.qdrant_host if r else "localhost")
     with col_b:
-        port = st.number_input("Port", value=r.qdrant_port if r else 6333, step=1)
+        qdrant_port = st.number_input("Port", value=r.qdrant_port if r else 6333, step=1)
     with col_c:
-        collection = st.text_input("Collection", value=r.qdrant_collection if r else "souli_chunks")
+        # Show the active collection (derived from KB selector) but allow override
+        collection_override = st.text_input(
+            "Collection (auto-filled)",
+            value=collection_to_query,
+            help="Auto-filled from Knowledge Base selector above. Edit to override.",
+        )
+
+    # Resolve final collection: manual override wins if user changed it
+    active_collection = collection_override if collection_override.strip() else collection_to_query
+
+    # Active collection pill
+    st.markdown(
+        f'<div class="kb-pill">🗄️ Querying: <b>{active_collection}</b></div>',
+        unsafe_allow_html=True,
+    )
 
     if st.button("🔍 Run Query", type="primary", use_container_width=True):
         if not query_text.strip():
@@ -521,24 +648,40 @@ def render_qdrant_inspector(cfg):
 
         with st.spinner("Querying Qdrant..."):
             try:
-                from souli_pipeline.retrieval.qdrant_store import query_chunks
                 emb_model = r.embedding_model if r else "sentence-transformers/all-MiniLM-L6-v2"
                 node = None if node_filter == "(no filter)" else node_filter
+                results: list[dict[str, Any]] = []
 
                 t0 = time.time()
-                results = query_chunks(
-                    user_text=query_text,
-                    collection=collection,
-                    energy_node=node,
-                    top_k=top_k,
-                    embedding_model=emb_model,
-                    host=host,
-                    port=int(port),
-                    score_threshold=0.0,   # show everything for inspection
-                )
+
+                # ── Dispatch to correct retrieval function ────────────────────
+                if "Improved" in kb_choice:
+                    from souli_pipeline.retrieval.qdrant_store_improved import query_improved_chunks
+                    results = query_improved_chunks(
+                        user_text=query_text,
+                        collection=active_collection,
+                        energy_node=node,
+                        top_k=top_k,
+                        embedding_model=emb_model,
+                        host=qdrant_host,
+                        port=int(qdrant_port),
+                    )
+                else:
+                    from souli_pipeline.retrieval.qdrant_store import query_chunks
+                    results = query_chunks(
+                        user_text=query_text,
+                        collection=active_collection,
+                        energy_node=node,
+                        top_k=top_k,
+                        embedding_model=emb_model,
+                        host=qdrant_host,
+                        port=int(qdrant_port),
+                        score_threshold=0.0,   # show everything for inspection
+                    )
+
                 latency = (time.time() - t0) * 1000
 
-                st.success(f"Retrieved {len(results)} chunks in {latency:.0f} ms")
+                st.success(f"Retrieved {len(results)} chunks in {latency:.0f} ms  ·  `{active_collection}`")
 
                 if not results:
                     st.info("No results. The collection may be empty or the query doesn't match anything.")
@@ -561,7 +704,7 @@ def render_qdrant_inspector(cfg):
                             f'Score: {score:.4f}</span>  '
                             f'<span class="rag-node">[{r_item.get("energy_node","")}]</span>  '
                             f'<span class="rag-source">{r_item.get("source_video","")}</span>',
-                            unsafe_allow_html=True
+                            unsafe_allow_html=True,
                         )
                         st.markdown(r_item.get("text", ""))
                         st.caption(f"URL: {r_item.get('youtube_url','—')}")

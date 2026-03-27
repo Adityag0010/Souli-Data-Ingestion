@@ -159,7 +159,7 @@ def process_videos(df, config_path, skip_tagging, merge_outputs, output_format):
         rid = get_run_id()
         
         for idx, row in df.iterrows():
-            video_url = row.get("yt_links") or row.get("youtube_url")
+            video_url = row.get("yt_links") or row.get("youtube_url") or row.get("url")
             video_name = row.get("name", f"video_{idx+1}")
             
             if not video_url:

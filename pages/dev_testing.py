@@ -2,11 +2,6 @@
 Souli Dev Testing Dashboard
 ============================
 Surfaces every known silent failure mode in the pipeline so nothing is invisible during testing.
-
-Add to your app.py:
-    elif page == "🔬 Dev Testing":
-        from pages import dev_testing
-        dev_testing.show()
 """
 
 import streamlit as st

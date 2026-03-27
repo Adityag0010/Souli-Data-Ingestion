@@ -116,3 +116,27 @@ voice:
   whisper_model: "base"
   tts_provider: "edge_tts"
   tts_voice: "en-IN-NeerjaNeural"
+
+improved_pipeline:
+  # Whisper model for transcription (medium = best balance of speed/quality)
+  whisper_model: "medium"
+
+  # Topic boundary sensitivity — lower = more chunks, higher = fewer larger chunks
+  # Start with 0.45 and tune after inspecting topic_segments.xlsx
+  similarity_threshold: 0.45
+
+  # Topic segment size limits
+  min_topic_words: 80       # segments smaller than this get absorbed into neighbours
+  max_topic_words: 600      # segments larger than this get word-count split
+
+  # LLM context for cleaning + persona calls (8k fits full cleaned transcript)
+  num_ctx_processing: 8192
+
+  # Separate Qdrant collection — existing souli_chunks is untouched
+  qdrant_collection_improved: "souli_chunks_improved"
+
+  # Coach persona file — starts empty, grows with each video processed
+  persona_path: "data/coach_persona.txt"
+
+  # Max words in the persona string (hard cap enforced after each merge)
+  persona_max_words: 350

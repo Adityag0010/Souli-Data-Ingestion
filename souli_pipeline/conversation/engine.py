@@ -1,27 +1,29 @@
 """
-Souli Conversation Engine  — DEBUG-INSTRUMENTED VERSION
-Drop this in as souli_pipeline/conversation/engine.py on your dev branch.
+Souli Conversation Engine — with per-function timing via @timed decorator.
 
-Every turn pushes a structured debug event to self._debug_events so the
-Streamlit dev UI can inspect exactly what happened: phase transitions,
-diagnosis result, full Qdrant results, LLM call details.
+Timed functions:
+  engine._process          → total turn time (everything)
+  engine._diagnose         → energy node diagnosis time
+  engine._rag_retrieve     → Qdrant retrieval time (includes embedding)
+  engine._llm_response     → Ollama generation time
 
-No changes to the public API — .turn(), .turn_stream(), .greeting() all
-work identically.
+Log output example:
+  [TIMER] engine._rag_retrieve                   → 9846ms   ← bottleneck visible immediately
+  [TIMER] engine._llm_response                   → 3201ms
+  [TIMER] engine._diagnose                       → 124ms
+  [TIMER] engine._process (total turn)           → 13280ms
 """
 from __future__ import annotations
 
 import logging
 import re
-import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional
+from typing import Dict, Generator, List, Optional
+
+from souli_pipeline.utils.logging import timed
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Conversation phases
-# ---------------------------------------------------------------------------
 PHASE_GREETING     = "greeting"
 PHASE_INTAKE       = "intake"
 PHASE_SHARING      = "sharing"
@@ -51,58 +53,7 @@ class ConversationState:
     rich_opening: bool = False
 
 
-# ---------------------------------------------------------------------------
-# Debug event structure (one per turn)
-# ---------------------------------------------------------------------------
-def _empty_debug(turn: int, phase_before: str, user_text: str) -> Dict[str, Any]:
-    return {
-        "turn": turn,
-        "timestamp": time.time(),
-        "phase_before": phase_before,
-        "phase_after": phase_before,          # updated at end of _process()
-        "user_text": user_text,
-        # ── Diagnosis ──────────────────────────────────────────────────
-        "diagnosis": {
-            "ran": False,
-            "input_snippet": "",
-            "energy_node": None,
-            "confidence": "unknown",
-            "matched_problem": None,
-            "similarity": None,
-            "method": "not_run",
-        },
-        # ── RAG / Qdrant ────────────────────────────────────────────────
-        "rag": {
-            "ran": False,
-            "query": "",
-            "energy_node_filter": None,
-            "top_k_requested": 0,
-            "results": [],          # list of dicts from Qdrant
-            "error": None,
-        },
-        # ── LLM call ────────────────────────────────────────────────────
-        "llm": {
-            "ran": False,
-            "model": "",
-            "endpoint": "",
-            "phase": "",
-            "history_length": 0,
-            "rag_chunks_injected": 0,
-            "system_prompt": "",
-            "used_fallback": False,
-            "fallback_reason": "",
-            "latency_ms": None,
-        },
-        # ── Full state after turn ────────────────────────────────────────
-        "state_after": {},
-    }
-
-
 class ConversationEngine:
-    """
-    Main engine — identical public API to original, with debug instrumentation.
-    Access debug events via self._debug_events (list, one dict per turn).
-    """
 
     def __init__(
         self,
@@ -120,27 +71,23 @@ class ConversationEngine:
         framework: Optional[Dict] = None,
         gold_df=None,
     ):
-        self.chat_model = chat_model
-        self.tagger_model = tagger_model
-        self.ollama_endpoint = ollama_endpoint
-        self.rag_top_k = rag_top_k
+        self.chat_model       = chat_model
+        self.tagger_model     = tagger_model
+        self.ollama_endpoint  = ollama_endpoint
+        self.rag_top_k        = rag_top_k
         self.max_intake_turns = max_intake_turns
-        self.temperature = temperature
-        self.qdrant_host = qdrant_host
-        self.qdrant_port = qdrant_port
-        self.qdrant_collection = qdrant_collection
-        self.embedding_model = embedding_model
-        self.nodes_allowed = nodes_allowed or [
+        self.temperature      = temperature
+        self.qdrant_host      = qdrant_host
+        self.qdrant_port      = qdrant_port
+        self.qdrant_collection= qdrant_collection
+        self.embedding_model  = embedding_model
+        self.nodes_allowed    = nodes_allowed or [
             "blocked_energy", "depleted_energy", "scattered_energy",
             "outofcontrol_energy", "normal_energy",
         ]
         self.framework = framework or {}
-        self.gold_df = gold_df
-        self.state = ConversationState()
-
-        # ── Debug instrumentation ──────────────────────────────────────
-        self._debug_events: List[Dict[str, Any]] = []   # full history
-        self._current_debug: Dict[str, Any] = {}        # in-flight turn
+        self.gold_df   = gold_df
+        self.state     = ConversationState()
 
     # ------------------------------------------------------------------
     # Factories
@@ -149,19 +96,19 @@ class ConversationEngine:
     @classmethod
     def from_config(cls, cfg, gold_path: Optional[str] = None, excel_path: Optional[str] = None):
         from .solution import load_framework_from_gold, load_framework_from_excel
-        from ..retrieval.match import load_gold
+        from souli_pipeline.retrieval.match import load_gold
 
         c = cfg.conversation
         r = cfg.retrieval
         e = cfg.energy
 
         framework = {}
-        gold_df = None
+        gold_df   = None
 
         if gold_path:
             try:
                 framework = load_framework_from_gold(gold_path)
-                gold_df = load_gold(gold_path, e.nodes_allowed)
+                gold_df   = load_gold(gold_path, e.nodes_allowed)
                 logger.info("Loaded framework from gold.xlsx (%d nodes)", len(framework))
             except Exception as exc:
                 logger.warning("Could not load gold.xlsx: %s", exc)
@@ -190,13 +137,11 @@ class ConversationEngine:
         )
 
     # ------------------------------------------------------------------
-    # Public API (unchanged from original)
+    # Public API
     # ------------------------------------------------------------------
 
     def reset(self):
         self.state = ConversationState()
-        self._debug_events.clear()
-        self._current_debug = {}
 
     def turn(self, user_text: str) -> str:
         result = self._process(user_text, stream=False)
@@ -215,9 +160,10 @@ class ConversationEngine:
         return get_greeting()
 
     # ------------------------------------------------------------------
-    # Internal processing — instrumented
+    # Internal processing — TIMED at the top level
     # ------------------------------------------------------------------
 
+    @timed("engine._process (total turn)")
     def _process(self, user_text: str, stream: bool):
         s = self.state
         s.turn_count += 1
@@ -225,11 +171,6 @@ class ConversationEngine:
         s.user_text_buffer += " " + user_text
         s.messages.append({"role": "user", "content": user_text})
 
-        # ── Init debug event for this turn ────────────────────────────
-        phase_before = s.phase
-        self._current_debug = _empty_debug(s.turn_count, phase_before, user_text)
-
-        # ── Phase routing ─────────────────────────────────────────────
         if s.phase == PHASE_GREETING:
             response = self._handle_greeting(user_text, stream)
         elif s.phase == PHASE_INTAKE:
@@ -249,33 +190,13 @@ class ConversationEngine:
         else:
             response = self._handle_venting(user_text, stream)
 
-        # ── Finalise debug event ──────────────────────────────────────
-        self._current_debug["phase_after"] = s.phase
-        self._current_debug["state_after"] = {
-            "phase": s.phase,
-            "energy_node": s.energy_node,
-            "node_confidence": s.node_confidence,
-            "intent": s.intent,
-            "turn_count": s.turn_count,
-            "user_name": s.user_name,
-            "summary_attempted": s.summary_attempted,
-            "summary_confirmed": s.summary_confirmed,
-            "rich_opening": s.rich_opening,
-            "short_answer_count": s.short_answer_count,
-            "messages_count": len(s.messages),
-            "user_text_buffer_words": len(s.user_text_buffer.split()),
-            "framework_nodes_loaded": list(self.framework.keys()),
-            "gold_df_rows": len(self.gold_df) if self.gold_df is not None else 0,
-        }
-        self._debug_events.append(dict(self._current_debug))
-
         if isinstance(response, str):
             s.messages.append({"role": "assistant", "content": response})
 
         return response
 
     # ------------------------------------------------------------------
-    # Phase handlers (identical logic, unchanged)
+    # Phase handlers (unchanged logic)
     # ------------------------------------------------------------------
 
     def _handle_greeting(self, user_text: str, stream: bool):
@@ -298,6 +219,7 @@ class ConversationEngine:
             )
 
         s.phase = PHASE_INTAKE
+
         if name and not shared_feelings:
             return f"Lovely to meet you, {name}. How are you feeling today?"
         elif name and shared_feelings:
@@ -328,7 +250,7 @@ class ConversationEngine:
         if is_short_answer(user_text) and s.short_answer_count < 2:
             s.short_answer_count += 1
             follow_up = get_short_follow_up(s.short_answer_count)
-            rag = self._rag_retrieve(user_text, s.energy_node)
+            rag   = self._rag_retrieve(user_text, s.energy_node)
             reply = self._llm_response(user_text, rag, stream)
             if isinstance(reply, str) and not stream:
                 return reply + "\n\n" + follow_up
@@ -346,7 +268,7 @@ class ConversationEngine:
         intent = detect_intent(user_text)
         if intent == "solution":
             s.intent = "solution"
-            s.phase = PHASE_SOLUTION
+            s.phase  = PHASE_SOLUTION
             return self._handle_solution(user_text, stream)
 
         sharing_turns = self._count_turns_in_phase(PHASE_SHARING)
@@ -361,7 +283,7 @@ class ConversationEngine:
         if probe:
             probe_idx_list.append(len(probe_idx_list))
 
-        rag = self._rag_retrieve(user_text, s.energy_node)
+        rag   = self._rag_retrieve(user_text, s.energy_node)
         reply = self._llm_response(user_text, rag, stream)
         if probe and isinstance(reply, str) and not stream:
             return reply + "\n\n" + probe
@@ -385,7 +307,7 @@ class ConversationEngine:
         if probe:
             probe_idx_list.append(len(probe_idx_list))
 
-        rag = self._rag_retrieve(user_text, s.energy_node)
+        rag   = self._rag_retrieve(user_text, s.energy_node)
         reply = self._llm_response(user_text, rag, stream)
         if probe and isinstance(reply, str) and not stream:
             return reply + "\n\n" + probe
@@ -451,16 +373,16 @@ class ConversationEngine:
 
         if intent == "solution":
             s.intent = "solution"
-            s.phase = PHASE_SOLUTION
+            s.phase  = PHASE_SOLUTION
             return self._handle_solution(user_text, stream)
 
         if intent in ("venting", "sharing"):
             s.intent = "venting"
-            s.phase = PHASE_VENTING
+            s.phase  = PHASE_VENTING
             return self._handle_venting(user_text, stream)
 
         s.phase = PHASE_VENTING
-        rag = self._rag_retrieve(user_text, s.energy_node)
+        rag   = self._rag_retrieve(user_text, s.energy_node)
         reply = self._llm_response(user_text, rag, stream)
         if isinstance(reply, str) and not stream:
             return reply + "\n\n" + INTENT_BRIDGE
@@ -473,7 +395,7 @@ class ConversationEngine:
         intent = detect_intent(user_text)
         if intent == "solution":
             s.intent = "solution"
-            s.phase = PHASE_SOLUTION
+            s.phase  = PHASE_SOLUTION
             return self._handle_solution(user_text, stream)
 
         _short = len(user_text.strip().split()) <= 3
@@ -501,7 +423,7 @@ class ConversationEngine:
         from .solution import get_solution_for_node, format_solution_text
 
         node = s.energy_node or "blocked_energy"
-        sol = get_solution_for_node(node, self.framework)
+        sol  = get_solution_for_node(node, self.framework)
 
         if not sol:
             logger.warning("No framework solution for node '%s' — using LLM only", node)
@@ -524,18 +446,15 @@ class ConversationEngine:
             return format_solution_text(node, sol)
 
     # ------------------------------------------------------------------
-    # Core helpers — instrumented versions
+    # Core helpers — all TIMED individually
     # ------------------------------------------------------------------
 
+    @timed("engine._diagnose")
     def _diagnose(self, text: str):
-        """Update energy_node based on accumulated user text. Captures debug info."""
+        """Update energy_node based on accumulated user text."""
         s = self.state
-        from ..energy.normalize import infer_node
-        from ..retrieval.match import diagnose as retrieval_diagnose
-
-        d = self._current_debug["diagnosis"]
-        d["ran"] = True
-        d["input_snippet"] = text.strip()[-500:]  # last 500 chars of buffer
+        from souli_pipeline.energy.normalize import infer_node
+        from souli_pipeline.retrieval.match import diagnose as retrieval_diagnose
 
         try:
             if self.gold_df is not None and not self.gold_df.empty:
@@ -545,50 +464,21 @@ class ConversationEngine:
                     self.nodes_allowed,
                     embedding_model=self.embedding_model,
                 )
-                s.energy_node = result.get("energy_node") or "blocked_energy"
-                s.node_confidence = result.get("confidence", "keyword_fallback")
-
-                d["energy_node"] = s.energy_node
-                d["confidence"] = s.node_confidence
-                d["matched_problem"] = result.get("matched_problem")
-                d["similarity"] = result.get("similarity")
-                d["method"] = (
-                    "embedding_match" if result.get("confidence") == "embedding_match"
-                    else "keyword_fallback"
-                )
-                d["framework_row_preview"] = {
-                    k: v[:120] if isinstance(v, str) else v
-                    for k, v in (result.get("framework_row") or {}).items()
-                }
+                s.energy_node    = result.get("energy_node") or "blocked_energy"
+                s.node_confidence= result.get("confidence", "keyword_fallback")
             else:
-                node = infer_node(text, "")
-                s.energy_node = node
-                s.node_confidence = "keyword_fallback"
-
-                d["energy_node"] = node
-                d["confidence"] = "keyword_fallback"
-                d["method"] = "keyword_fallback_no_gold"
-                d["matched_problem"] = None
-                d["similarity"] = None
-
+                s.energy_node    = infer_node(text, "")
+                s.node_confidence= "keyword_fallback"
         except Exception as exc:
             logger.warning("Diagnosis error: %s", exc)
             s.energy_node = s.energy_node or "blocked_energy"
-            d["energy_node"] = s.energy_node
-            d["error"] = str(exc)
 
+    @timed("engine._rag_retrieve")
     def _rag_retrieve(self, query: str, energy_node: Optional[str]) -> list:
-        """Retrieve Qdrant chunks. Captures full results for debug."""
-        r = self._current_debug["rag"]
-        r["ran"] = True
-        r["query"] = query
-        r["energy_node_filter"] = energy_node
-        r["top_k_requested"] = self.rag_top_k
-
+        """Retrieve relevant YouTube teaching chunks from Qdrant."""
         try:
-            from ..retrieval.qdrant_store import query_chunks
-            t0 = time.time()
-            results = query_chunks(
+            from souli_pipeline.retrieval.qdrant_store import query_chunks
+            return query_chunks(
                 user_text=query,
                 collection=self.qdrant_collection,
                 energy_node=energy_node,
@@ -597,26 +487,22 @@ class ConversationEngine:
                 host=self.qdrant_host,
                 port=self.qdrant_port,
             )
-            r["latency_ms"] = round((time.time() - t0) * 1000, 1)
-            r["results"] = results   # full list — text, score, energy_node, source_video
-            r["results_count"] = len(results)
-            return results
         except Exception as exc:
             logger.debug("Qdrant retrieval failed: %s", exc)
-            r["error"] = str(exc)
-            r["results"] = []
-            r["results_count"] = 0
             return []
 
+    @timed("engine._llm_response")
     def _llm_response(self, user_text: str, rag_chunks: list, stream: bool):
-        """Generate counselor response. Captures model call details for debug."""
-        from .counselor import generate_counselor_response, fallback_response, _build_counselor_system
+        """Generate counselor response via Ollama."""
+        from .counselor import generate_counselor_response, fallback_response
 
         history = self.state.messages[:-1][-8:]
 
         asked_topics = []
-        _topic_words = ["sleep", "eat", "food", "relax", "break", "support", "colleague",
-                        "manager", "family", "friend", "work", "office", "exercise", "hobby"]
+        _topic_words = [
+            "sleep", "eat", "food", "relax", "break", "support", "colleague",
+            "manager", "family", "friend", "work", "office", "exercise", "hobby",
+        ]
         for m in self.state.messages:
             if m["role"] == "assistant":
                 low = m["content"].lower()
@@ -624,27 +510,8 @@ class ConversationEngine:
                     if t in low and t not in asked_topics:
                         asked_topics.append(t)
 
-        # Build the system prompt for debug capture
-        system_prompt = _build_counselor_system(
-            user_name=self.state.user_name,
-            phase=self.state.phase,
-            asked_topics=asked_topics,
-        )
-
-        llm_d = self._current_debug["llm"]
-        llm_d["ran"] = True
-        llm_d["model"] = self.chat_model
-        llm_d["endpoint"] = self.ollama_endpoint
-        llm_d["phase"] = self.state.phase
-        llm_d["history_length"] = len(history)
-        llm_d["rag_chunks_injected"] = len(rag_chunks)
-        llm_d["system_prompt"] = system_prompt
-        llm_d["asked_topics"] = asked_topics
-        llm_d["used_fallback"] = False
-
-        t0 = time.time()
         try:
-            result = generate_counselor_response(
+            return generate_counselor_response(
                 history=history,
                 user_message=user_text,
                 rag_chunks=rag_chunks,
@@ -657,48 +524,27 @@ class ConversationEngine:
                 phase=self.state.phase,
                 asked_topics=asked_topics,
             )
-            if not stream:
-                llm_d["latency_ms"] = round((time.time() - t0) * 1000, 1)
-            return result
         except Exception as exc:
-            llm_d["used_fallback"] = True
-            llm_d["fallback_reason"] = str(exc)
-            llm_d["latency_ms"] = round((time.time() - t0) * 1000, 1)
             logger.warning("Ollama response failed: %s — using fallback.", exc)
             return fallback_response(self.state.energy_node, user_text)
 
     def _count_turns_in_phase(self, phase: str) -> int:
-        count = 0
-        for msg in reversed(self.state.messages):
-            if msg["role"] == "assistant":
-                count += 1
-            if count >= 4:
-                break
         sharing_count = sum(
             1 for m in self.state.messages
             if m["role"] == "assistant" and self.state.phase == phase
         )
         return sharing_count
 
-    # ------------------------------------------------------------------
-    # Convenience info
-    # ------------------------------------------------------------------
-
     @property
     def diagnosis_summary(self) -> Dict:
         s = self.state
         return {
             "energy_node": s.energy_node,
-            "confidence": s.node_confidence,
-            "intent": s.intent,
-            "phase": s.phase,
-            "turn_count": s.turn_count,
+            "confidence" : s.node_confidence,
+            "intent"     : s.intent,
+            "phase"      : s.phase,
+            "turn_count" : s.turn_count,
         }
-
-    @property
-    def latest_debug(self) -> Optional[Dict]:
-        """Convenience: the debug event from the most recent turn."""
-        return self._debug_events[-1] if self._debug_events else None
 
 
 # ---------------------------------------------------------------------------
@@ -726,6 +572,7 @@ _NOT_NAMES = {
 
 def _extract_name(text: str) -> Optional[str]:
     text = (text or "").strip()
+
     for pattern in [
         r"(?:my name is|name(?:'?s)? is|call me|they call me)\s+([A-Za-z]+)",
     ]:
