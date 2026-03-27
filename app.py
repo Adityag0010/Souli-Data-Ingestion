@@ -30,11 +30,19 @@ def main():
     # Sidebar navigation
     page = st.sidebar.radio(
         "Select Interface",
-        ["🎬 Data Ingestion", "💬 Chatbot Testing", "🔬 Dev Testing"],
+        [
+            "🚀 Data Ingestion (Improved)",
+            "🎬 Data Ingestion",
+            "💬 Chatbot Testing",
+            "🔬 Dev Testing",
+        ],
         help="Choose between data ingestion or chatbot testing"
     )
-    
-    if page == "🎬 Data Ingestion":
+
+    if page == "🚀 Data Ingestion (Improved)":
+        from pages import data_ingestion_improved
+        data_ingestion_improved.show()
+    elif page == "🎬 Data Ingestion":
         from pages import data_ingestion
         data_ingestion.show()
     elif page == "💬 Chatbot Testing":
