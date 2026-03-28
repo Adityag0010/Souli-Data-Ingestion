@@ -144,13 +144,13 @@ def _render_step3(cleaned_path: str):
         with st.expander(f"Topic {topic_idx} — retention {badge}  ({orig_w}w → {clean_w}w)", expanded=False):
             left, right = st.columns(2)
             left.markdown("**Original**")
-            left.text_area("", orig, height=180, disabled=True, key=f"orig_{topic_idx}_{orig_w}")
+            left.text_area("Original", orig, height=180, disabled=True, key=f"orig_{topic_idx}_{orig_w}")
             right.markdown("**Cleaned**")
-            right.text_area("", cleaned, height=180, disabled=True, key=f"clean_{topic_idx}_{clean_w}")
+            right.text_area("Cleaned", cleaned, height=180, disabled=True, key=f"clean_{topic_idx}_{clean_w}")
 
     st.markdown("**Full table**")
     show_cols = [c for c in ["topic_index", "start", "end", "original_words", "cleaned_words", "original_text", "cleaned_text"] if c in df.columns]
-    st.dataframe(df[show_cols], use_container_width=True, height=250)
+    st.dataframe(df[show_cols], width="stretch", height=250)
     _download_btn(cleaned_path, "cleaned_chunks.xlsx")
 
 
