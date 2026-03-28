@@ -13,6 +13,8 @@ import logging
 import os
 from typing import Optional
 
+from souli_pipeline.utils.logging import timed
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +38,7 @@ class WhisperSTT:
             logger.info("Loaded faster-whisper model: %s", self._model_name)
         return self._model
 
+    @timed("stt.transcribe_file")
     def transcribe_file(self, audio_path: str, language: Optional[str] = None) -> str:
         """Transcribe an audio file. Returns transcript text."""
         model = self._load()
@@ -45,6 +48,7 @@ class WhisperSTT:
         segments, _ = model.transcribe(audio_path, beam_size=5, **kwargs)
         return " ".join(seg.text.strip() for seg in segments)
 
+    @timed("stt.transcribe_bytes")
     def transcribe_bytes(self, audio_bytes: bytes, sample_rate: int = 16000) -> str:
         """
         Transcribe raw PCM audio bytes (16-bit, mono).
@@ -84,6 +88,7 @@ class DeepgramSTT:
         if not self.api_key:
             logger.warning("DEEPGRAM_API_KEY not set — Deepgram STT will fail.")
 
+    @timed("stt.deepgram_transcribe_bytes")
     def transcribe_bytes(self, audio_bytes: bytes, sample_rate: int = 16000) -> str:
         from deepgram import DeepgramClient, PrerecordedOptions, FileSource
         dg = DeepgramClient(self.api_key)

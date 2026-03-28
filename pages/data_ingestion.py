@@ -15,14 +15,14 @@ def show():
     st.header("🎬 Data Ingestion Interface")
     st.write("""
     Upload a CSV file with YouTube links to process multiple videos.
-    The CSV should have a column named **yt_links** or **youtube_url**.
+    The CSV should have a column named **url** or **youtube_url**.
     """)
     
     # Instructions
     with st.expander("📋 CSV Format & Instructions", expanded=False):
         st.markdown("""
         ### Expected CSV Format:
-        | yt_links | name | title |
+        | url | name | title |
         |----------|------|-------|
         | https://youtu.be/VIDEO_ID_1 | video_1 | My Video 1 |
         | https://youtu.be/VIDEO_ID_2 | video_2 | My Video 2 |
@@ -72,7 +72,7 @@ def show():
         
         # Validate CSV
         if not validate_csv(df):
-            st.error("❌ CSV must have 'yt_links' or 'youtube_url' column")
+            st.error("❌ CSV must have 'url' or 'youtube_url' column")
             return
         
         st.success("✅ CSV is valid")
@@ -114,7 +114,7 @@ def show():
 
 def validate_csv(df):
     """Validate CSV has required columns"""
-    required_cols = {"yt_links", "youtube_url"}
+    required_cols = {"yt_links", "youtube_url", "url"}
     actual_cols = set(df.columns)
     return bool(actual_cols & required_cols)
 
@@ -122,7 +122,7 @@ def validate_csv(df):
 def create_example_csv():
     """Create example CSV data"""
     example_data = {
-        "yt_links": [
+        "url": [
             "https://youtu.be/dQw4w9WgXcQ",
             "https://youtu.be/jNQXAC9IVRw"
         ],
@@ -159,7 +159,7 @@ def process_videos(df, config_path, skip_tagging, merge_outputs, output_format):
         rid = get_run_id()
         
         for idx, row in df.iterrows():
-            video_url = row.get("yt_links") or row.get("youtube_url")
+            video_url = row.get("yt_links") or row.get("youtube_url") or row.get("url")
             video_name = row.get("name", f"video_{idx+1}")
             
             if not video_url:

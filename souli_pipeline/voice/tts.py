@@ -16,6 +16,8 @@ import os
 import tempfile
 from typing import AsyncGenerator, Optional
 
+from souli_pipeline.utils.logging import timed
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,7 +37,7 @@ class EdgeTTS:
         self.rate = rate
 
     async def synthesize_async(self, text: str) -> bytes:
-        """Synthesize text → WAV bytes."""
+        """Synthesize text → MP3 bytes."""
         import edge_tts
 
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
@@ -50,6 +52,7 @@ class EdgeTTS:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
+    @timed("tts.edge_synthesize")
     def synthesize(self, text: str) -> bytes:
         """Synchronous wrapper for synthesize_async."""
         return asyncio.run(self.synthesize_async(text))
@@ -78,6 +81,7 @@ class PiperTTS:
         self.model_path = model_path
         self.piper_binary = piper_binary
 
+    @timed("tts.piper_synthesize")
     def synthesize(self, text: str) -> bytes:
         import subprocess
 

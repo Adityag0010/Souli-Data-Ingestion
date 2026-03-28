@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import os
 import asyncio
+import sys
 import typer
 from rich import print
 from .config_loader import load_config
@@ -66,6 +67,44 @@ def run_youtube(
     print("[green]Done.[/green]")
     for k, v in out.items():
         print(f" - {k}: {v}")
+
+
+@run_app.command("youtube-improved")
+def run_youtube_improved(
+    config: str = typer.Option(..., "--config", "-c"),
+    youtube_url: str = typer.Option(..., "--youtube-url"),
+    whisper_model: str = typer.Option("medium", "--whisper-model"),
+    similarity_threshold: float = typer.Option(0.45, "--similarity-threshold",
+                                               help="Topic boundary sensitivity (lower = more chunks)"),
+    skip_persona: bool = typer.Option(False, "--skip-persona",
+                                      help="Skip persona extraction (faster for testing)"),
+    skip_ingest: bool = typer.Option(False, "--skip-ingest",
+                                     help="Skip Qdrant ingest (produce files only)"),
+    collection: str = typer.Option("souli_chunks_improved", "--collection"),
+    persona_path: str = typer.Option("data/coach_persona.txt", "--persona-path"),
+):
+    """Run improved YouTube pipeline: Whisper → topic segments → LLM cleaning → Qdrant."""
+    cfg = load_config(config)
+    rid = get_run_id()
+    out_dir = os.path.join(cfg.run.outputs_dir, rid, "youtube_improved", "video_001")
+
+    from .youtube.pipeline_improved import run_improved_pipeline
+
+    outputs = run_improved_pipeline(
+        cfg=cfg,
+        youtube_url=youtube_url,
+        out_dir=out_dir,
+        whisper_model=whisper_model,
+        similarity_threshold=similarity_threshold,
+        qdrant_collection=collection,
+        persona_path=persona_path,
+        skip_persona=skip_persona,
+        skip_ingest=skip_ingest,
+    )
+    print("[green]Improved pipeline done.[/green]")
+    for k, v in outputs.items():
+        print(f"  - {k}: {v}")
+
 
 @run_app.command("playlist")
 def run_playlist(

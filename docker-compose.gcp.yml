@@ -113,9 +113,17 @@ services:
     environment:
       <<: *souli-env
     # ← This line tells Docker what to RUN for this service
-    command: [ "streamlit", "run", "/app/souli_pipeline/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0" ]
+    # command: [ "streamlit", "run", "/app/souli_pipeline/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0" ]
+    command: [ "streamlit", "run", "/app/app.py", "--server.port=8501", "--server.address=0.0.0.0" ]
     ports:
       - "8501:8501"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
     healthcheck:
       test: [ "CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8501' || exit 1" ]
       interval: 60s
@@ -141,17 +149,48 @@ services:
     volumes: *souli-volumes
     environment:
       <<: *souli-env
-    # ← This is what makes this service different from 'souli' above
-    #   Same Docker image, different command = FastAPI instead of Streamlit
     command: [ "gunicorn", "souli_pipeline.api:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "3", "--bind", "0.0.0.0:8000", "--timeout", "120" ]
     ports:
       - "8000:8000" # Mobile app calls http://<VM_IP>:8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:8000/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  souli-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: souli-dev-ui
+    restart: unless-stopped
+    networks:
+      - souli-net
+    depends_on:
+      ollama:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - souli-data:/app/data
+      - souli-outputs:/app/outputs
+    environment:
+      - OLLAMA_ENDPOINT=http://ollama:11434
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-souli_chunks}
+      - SOULI_LOG_LEVEL=DEBUG
+    command: [ "streamlit", "run", "/app/souli_pipeline/streamlit_dev.py", "--server.port=8502", "--server.address=0.0.0.0" ]
+    ports:
+      - "8502:8502"
 
   # ── LiveKit SFU (self-hosted, optional) ───────────────────────────────────
   livekit:
