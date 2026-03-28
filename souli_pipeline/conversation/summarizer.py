@@ -16,40 +16,52 @@ logger = logging.getLogger(__name__)
 # Summary confirmation template
 # ---------------------------------------------------------------------------
 
-SUMMARY_TEMPLATE = (
-    "So from what you've shared, it sounds like {summary_body}. "
-    "Have I understood that right? "
-    "If yes, I'd love to help you find something that might ease this — "
-    "or if you'd like to share more first, that's completely okay too."
-)
 
-# Fallback when LLM is unavailable
-_NODE_SUMMARY_STUBS = {
-    "blocked_energy": (
-        "you're feeling stuck and disconnected, like you're just going through the motions "
-        "and something inside has shut down"
-    ),
-    "depleted_energy": (
-        "you're running on empty — exhausted, undervalued, and finding it hard to complete "
-        "things or feel motivated"
-    ),
-    "scattered_energy": (
-        "you're overwhelmed with too much happening at once, feeling anxious and unable to "
-        "find your footing no matter how hard you try"
-    ),
-    "outofcontrol_energy": (
-        "there's a lot of intense emotion building up inside — anger, restlessness, or "
-        "reactions that feel bigger than you'd like them to be"
-    ),
-    "normal_energy": (
-        "you're in a relatively stable place but looking for more meaning, growth, or "
-        "a deeper sense of fulfilment"
-    ),
-}
+TONE_STYLES = [
+    "Gentle and reflective",
+    "Warm and soulful",
+    "Direct and grounded",
+    "Deeply empathetic and quiet",
+    "Supportive and attentive"
+]
+
+OPENING_PHRASES = [
+    "So from what you've shared, it sounds like"
+    "I've been listening closely, and it feels like",
+    "If I'm hearing you correctly, it sounds as though",
+    "It seems like what's weighing on you is",
+    "From everything you've shared, I'm picking up on",
+    "It sounds like you're navigating a space where"
+]
+
+CLOSING_INVITATIONS = [
+    "Does that sit right with you? If it does, we can look at some ways to ease this, or we can just stay here if you have more to say.",
+    "Am I capturing that correctly? We can explore some support together whenever you're ready, or just keep talking.",
+    "Does that resonate? I'm here to help find a way forward, but there's no rush if you need to share more.",
+    "Is that how it feels for you? I'd love to help you find some balance, or we can simply hold this space a bit longer."
+]
 
 
+def build_dynamic_system_prompt(user_name: Optional[str] = None) -> str:
+    """Creates a unique system instruction for every call."""
+    style = random.choice(TONE_STYLES)
+    opening = random.choice(OPENING_PHRASES)
+    closing = random.choice(CLOSING_INVITATIONS)
+    
+    name_clause = f"Address the user as {user_name}." if user_name else "Be intimate but respectful."
+    
+    return (
+        f"You are Souli, a warm empathetic companion. {name_clause} "
+        f"Your tone today is {style}. Your goal is to synthesize the user's situation. "
+        f"\n\nSTRICT CONSTRAINTS:\n"
+        f"1. Start your response with a variation of: '{opening}...'\n"
+        f"2. Write ONE clear, heartfelt summary sentence of their struggle.\n"
+        f"3. End your response with this exact sentiment (but you may tweak the words slightly): '{closing}'\n"
+        f"4. Do NOT use robotic phrases like 'In summary' or 'To conclude'.\n"
+        f"5. Total response should be under 80 words."
+    )
 # ---------------------------------------------------------------------------
-# LLM-based summary (Ollama)
+# Main Summary Logic
 # ---------------------------------------------------------------------------
 
 def generate_summary(
@@ -58,12 +70,11 @@ def generate_summary(
     user_name: Optional[str] = None,
     ollama_model: str = "llama3.1",
     ollama_endpoint: str = "http://localhost:11434",
-    temperature: float = 0.5,
+    temperature: float = 0.75,
 ) -> str:
     """
-    Generate a personalised summary of what the user has shared so far.
-    Falls back to a keyword-based stub if Ollama is unavailable.
-    Returns the full confirmation message string.
+    Synthesizes user input into a dynamic, empathetic summary.
+    Replaces static templates with a randomized structural prompt.
     """
     try:
         from ..llm.ollama import OllamaLLM
@@ -72,53 +83,40 @@ def generate_summary(
             model=ollama_model,
             endpoint=ollama_endpoint,
             temperature=temperature,
-            num_ctx=2048,
+            num_ctx=4096,
         )
 
         if not llm.is_available():
+            logger.warning("Summary generation failed — using fallback.")
             return _fallback_summary(energy_node, user_name)
 
-        name_part = f"The user's name is {user_name}. " if user_name else ""
-
-        system = (
-            "You are Souli, a warm empathetic companion. "
-            "Your task is to write ONE concise summary sentence (max 40 words) "
-            "capturing the core of what the user has shared — their situation, "
-            "feelings, and what seems to be bothering them most. "
-            "Write in second person (you are..., you feel..., you've been...). "
-            "Do NOT offer advice. Do NOT ask a question. Just summarise warmly."
-        )
+        # Build the dynamic instructions
+        system_instruction = build_dynamic_system_prompt(user_name)
 
         prompt = (
-            f"{name_part}"
-            f"Here is what the user has shared so far:\n\n"
-            f"\"\"\"\n{user_text_buffer[:1200].strip()}\n\"\"\"\n\n"
-            f"Write the summary sentence now (no preamble, just the sentence):"
+            f"User's shared context:\n"
+            f"\"\"\"\n{user_text_buffer[:1500].strip()}\n\"\"\"\n\n"
+            f"Generate the empathetic summary and check-in now:"
         )
 
-        summary_body = llm.generate(prompt=prompt, system=system, temperature=temperature)
-        summary_body = summary_body.strip().strip('"').strip("'").rstrip(".")
-
-        name_addr = f"{user_name}, " if user_name else ""
-        return (
-            f"{name_addr}so from everything you've shared — {summary_body}. "
-            f"Have I understood that right? "
-            f"If yes, I'd love to explore something that might actually help you — "
-            f"or if you want to share more first, we can absolutely do that too."
-        )
+        # Generate the entire block (Summary + Confirmation + CTA) in one go
+        full_response = llm.generate(prompt=prompt, system=system_instruction)
+        
+        return full_response.strip().strip('"')
 
     except Exception as exc:
-        logger.warning("Summary generation failed (%s) — using fallback.", exc)
+        logger.error("Dynamic summary generation failed: %s", exc)
         return _fallback_summary(energy_node, user_name)
 
-
 def _fallback_summary(energy_node: Optional[str], user_name: Optional[str]) -> str:
-    """Keyword-based fallback summary when Ollama is unavailable."""
-    stub = _NODE_SUMMARY_STUBS.get(energy_node or "", _NODE_SUMMARY_STUBS["blocked_energy"])
+    """A slightly improved fallback if the LLM is down."""
+    stubs = {
+        "blocked_energy": "you're feeling a bit stuck, like things have come to a standstill",
+        "depleted_energy": "you're carrying a lot right now and feeling quite drained",
+        "scattered_energy": "everything feels a bit chaotic and overwhelming at the moment",
+        "outofcontrol_energy": "there's a lot of intense emotion building up inside — anger, restlessness, or reactions that feel bigger than you'd like them to be",
+        "normal_energy": "you're in a relatively stable place but looking for more meaning, growth, or a deeper sense of fulfilment",
+    }
+    stub = stubs.get(energy_node, "you're going through a lot of changes right now")
     name_addr = f"{user_name}, " if user_name else ""
-    return (
-        f"{name_addr}from what you've shared it sounds like {stub}. "
-        f"Have I understood that right? "
-        f"If yes, I'd love to explore something that might actually help you — "
-        f"or if you want to share more first, we can absolutely do that too."
-    )
+    return f"{name_addr}It sounds like {stub}. Did I get that right? I'm here if you want to explore some help or just keep talking."
