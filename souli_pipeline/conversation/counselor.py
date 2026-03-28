@@ -50,21 +50,26 @@ def _build_counselor_system(
     phase: Optional[str] = None,
     asked_topics: Optional[List[str]] = None,
 ) -> str:
+
     system = _COUNSELOR_SYSTEM_BASE
+    
+    context_additions = []
     if user_name:
-        system = f"The person's name is {user_name}. Address them by name occasionally, warmly.\n\n" + system
+        context_additions.append(f"The person's name is {user_name}.")
+    
+    if phase == "venting":
+        context_additions.append("PHASE: Venting. Be a quiet presence. 1-2 sentences max.")
+    elif phase == "deepening":
+        context_additions.append("PHASE: Deepening. Invite a small reflection based on the KB.")
+    
     if asked_topics:
-        system += f"\n\nTopics already discussed (DO NOT ask about these again): {', '.join(asked_topics)}."
-        system += "\nAsk about something NEW or acknowledge what they said and move the conversation forward."
-    if phase in ("intake", "deepening"):
-        system += "\n\nSTRICT: 1-2 sentences only. One short question at the end."
-    elif phase == "intent_check":
-        system += "\n\nSTRICT: 2 sentences max. Ask if they want practical help or just to talk."
-    elif phase == "venting":
-        system += "\n\nSTRICT: 2 sentences max. Be present. One warm question."
-    else:
-        system += "\n\nSTRICT: 2-3 sentences max. Be direct and warm."
+        context_additions.append(f"Already discussed: {', '.join(asked_topics)}.")
+
+    if context_additions:
+        system += "\n\n[Current Session Context]\n" + "\n".join(context_additions)
+    
     return system
+
 
 _SOLUTION_SYSTEM = """\
 You are Souli, a warm and practical inner wellness guide.
