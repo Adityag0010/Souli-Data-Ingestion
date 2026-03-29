@@ -77,7 +77,7 @@ def _render_step1(whisper_path: str):
         total_words = df["text"].dropna().apply(lambda t: len(str(t).split())).sum()
         col2.metric("Total Words", int(total_words))
     cols_to_show = [c for c in ["start", "end", "text"] if c in df.columns]
-    st.dataframe(df[cols_to_show], use_container_width=True, height=250)
+    st.dataframe(df[cols_to_show], width="stretch", height=250)
     _download_btn(whisper_path, "whisper_segments.xlsx")
 
 
@@ -91,7 +91,7 @@ def _render_step2(paragraphs_path: str, topics_path: str):
             df_p = _read_excel_safe(paragraphs_path)
             st.metric("Paragraph count", len(df_p))
             cols = [c for c in ["index", "start", "end", "word_count", "text"] if c in df_p.columns]
-            st.dataframe(df_p[cols], use_container_width=True, height=220)
+            st.dataframe(df_p[cols], width="stretch", height=220)
             _download_btn(paragraphs_path, "paragraphs.xlsx")
         else:
             st.warning("paragraphs.xlsx not found")
@@ -102,10 +102,10 @@ def _render_step2(paragraphs_path: str, topics_path: str):
             df_t = _read_excel_safe(topics_path)
             st.metric("Topic count", len(df_t))
             cols = [c for c in ["topic_index", "start", "end", "word_count", "text"] if c in df_t.columns]
-            st.dataframe(df_t[cols], use_container_width=True, height=220)
+            st.dataframe(df_t[cols], width="stretch", height=220)
             if "word_count" in df_t.columns and not df_t.empty:
                 chart_df = df_t[["topic_index", "word_count"]].set_index("topic_index")
-                st.bar_chart(chart_df, use_container_width=True)
+                st.bar_chart(chart_df, width="stretch")
             _download_btn(topics_path, "topic_segments.xlsx")
         else:
             st.warning("topic_segments.xlsx not found")
@@ -372,7 +372,7 @@ def show():
 
     df_csv = pd.read_csv(uploaded_file)
     st.markdown("**Preview:**")
-    st.dataframe(df_csv, use_container_width=True)
+    st.dataframe(df_csv, width="stretch")
 
     if not _validate_csv(df_csv):
         st.error("CSV must have a column named url, youtube_url, or yt_links")
@@ -382,7 +382,7 @@ def show():
     st.success(f"CSV valid — {len(df_csv)} video(s) found")
 
     # ── Process ───────────────────────────────────────────────────────────
-    if not st.button("Start Processing", type="primary", use_container_width=True):
+    if not st.button("Start Processing", type="primary", width="stretch"):
         _display_previous_runs(qdrant_collection)
         return
 

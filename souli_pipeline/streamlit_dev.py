@@ -224,6 +224,8 @@ def _load_config():
     from souli_pipeline.config_loader import load_config
     return load_config(CONFIG_PATH)
 
+import os
+os.environ.setdefault("QDRANT_HOST", "localhost")
 
 def get_engine():
     """Return engine for current KB mode. Creates a separate engine per mode."""
