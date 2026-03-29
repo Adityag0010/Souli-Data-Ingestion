@@ -7,6 +7,8 @@ pydantic>=2.6
 pyyaml>=6.0
 rich>=13.7
 requests>=2.31
+torch>=2.0.0
+torchvision>=0.16.0
 
 # ── YouTube / transcript ───────────────────────────────────────────────────────
 yt-dlp>=2024.7.0
