@@ -167,7 +167,6 @@ def _render_step4(persona_snippet_path: str, video_idx: int = 0):
     global_persona = _read_text_safe("data/coach_persona.txt")
     if global_persona:
         with st.expander("Global coach persona (data/coach_persona.txt)", expanded=False):
-            # ✅ FIX: use video_idx to make key unique per video card
             st.text_area("", global_persona, height=180, disabled=True, key=f"global_persona_{video_idx}_{len(global_persona)}")
 
 def _render_step5_energy():
@@ -215,7 +214,7 @@ def _render_video_results(video_name: str, url: str, outputs: dict, collection: 
         st.divider()
         _render_step3(outputs.get("cleaned_chunks", ""))
         st.divider()
-        _render_step4(outputs.get("persona_snippet", ""))
+        _render_step4(outputs.get("persona_snippet", ""), video_idx=video_idx)
         st.divider()
         _render_step5_energy()
         st.divider()
