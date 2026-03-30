@@ -10,8 +10,6 @@ Fixes applied vs original:
   3. engine._debug_events / engine.latest_debug stubs added (were missing from engine.py)
   4. _count_turns_in_phase dead-code bug noted in debug output
 """
-from IPython.core import display_functions
-from IPython.core import display_functions
 from __future__ import annotations
 
 # ── PATH FIX — must be FIRST, before any souli_pipeline imports ──────────────
