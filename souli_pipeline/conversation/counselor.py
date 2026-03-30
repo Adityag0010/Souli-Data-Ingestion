@@ -110,7 +110,10 @@ def _build_chat_messages(
     # Inject RAG context as a contextual hint (injected as assistant pre-context)
     rag_text = _build_rag_context(rag_chunks)
     if rag_text:
-        messages.append({"role": "assistant", "content": rag_text})
+        messages.append({
+            "role": "user", 
+            "content": f"[CONTEXT — teaching reference, not from user]:\n{rag_text}"
+        })
 
     messages.append({"role": "user", "content": user_message})
     return messages
