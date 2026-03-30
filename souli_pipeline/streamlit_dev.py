@@ -271,7 +271,7 @@ def get_stt():
 @st.cache_resource(show_spinner="Loading Edge TTS...")
 def get_tts():
     from souli_pipeline.voice.tts import EdgeTTS
-    return EdgeTTS(voice="en-IN-Arjun:DragonHDLatestNeural")
+    return EdgeTTS(voice="en-US-ChristopherNeural", rate="-10%", pitch="-15Hz")
 
 
 def _reset_all():
