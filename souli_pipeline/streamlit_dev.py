@@ -43,7 +43,19 @@ CONFIG_PATH = os.environ.get(
     "SOULI_CONFIG_PATH",
     str(_project_root / "configs" / "pipeline.gcp.yaml"),
 )
-GOLD_PATH   = os.environ.get("SOULI_GOLD_PATH", None)
+
+def _find_latest_gold() -> str | None:
+    outputs_dir = "outputs"
+    if not os.path.exists(outputs_dir):
+        return None
+    for run_id in sorted(os.listdir(outputs_dir), reverse=True):
+        gp = os.path.join(outputs_dir, run_id, "energy", "gold.xlsx")
+        if os.path.exists(gp):
+            return gp
+    return None
+
+GOLD_PATH = os.environ.get("SOULI_GOLD_PATH") or _find_latest_gold()
+
 _default_excel = str(_this_file.parent / "data" / "Souli_EnergyFramework_PW (1).xlsx")
 EXCEL_PATH  = os.environ.get(
     "SOULI_EXCEL_PATH",
@@ -259,7 +271,7 @@ def get_stt():
 @st.cache_resource(show_spinner="Loading Edge TTS...")
 def get_tts():
     from souli_pipeline.voice.tts import EdgeTTS
-    return EdgeTTS(voice="en-IN-NeerjaNeural")
+    return EdgeTTS(voice="en-IN-Arjun:DragonHDLatestNeural")
 
 
 def _reset_all():
@@ -325,35 +337,97 @@ def node_badge(node: Optional[str]) -> str:
     return (f'<span class="badge" style="background:{bg};'
             f'color:{border};border-left:3px solid {border};">{label}</span>')
 
-def conf_badge(confidence: str) -> str:
-    if confidence == "embedding_match":
-        return '<span class="badge badge-embed">embedding match</span>'
-    if "keyword" in confidence:
-        return '<span class="badge badge-kw">keyword fallback</span>'
-    return f'<span class="badge badge-neutral">{confidence}</span>'
+def conf_badge(conf: str) -> str:
+    """Render a coloured confidence badge. Handles all new confidence levels."""
+    _MAP = {
+        "high_confidence":   ("#dcfce7", "#16a34a", "✅ High Confidence"),
+        "tagger_confirmed":  ("#d1fae5", "#059669", "🤖 Tagger Confirmed"),
+        "tagger_only":       ("#ecfdf5", "#10b981", "🤖 Tagger Only"),
+        "embedding_match":   ("#eff6ff", "#2563eb", "🔢 Embedding Match"),
+        "keyword_fallback":  ("#fef2f2", "#dc2626", "⚠️ Keyword Fallback"),
+        "unknown":           ("#f8fafc", "#64748b", "❓ Unknown"),
+    }
+    bg, fg, label = _MAP.get(conf, ("#f8fafc", "#64748b", conf or "—"))
+    return (
+        f'<span class="badge" style="background:{bg};color:{fg};'
+        f'border:1px solid {fg}44;font-weight:700;">{label}</span>'
+    )
 
 
 # ── Engine turn ───────────────────────────────────────────────────────────────
 
-def run_turn(user_input: str) -> tuple[str, dict]:
-    """Run one engine turn. Returns (response_text, debug_dict)."""
+def run_turn(user_input: str):
+    """Run one engine turn and return (response_text, debug_event).
+    
+    Extended version: also captures the exact prompt sent to Ollama,
+    the diagnosis breakdown (keyword/embedding/tagger), and solution
+    framework content when in solution phase.
+    """
     engine = get_engine()
-
-    # Capture RAG chunks via monkey-patch
+ 
+    # ── Capture RAG chunks ────────────────────────────────────────────────
     rag_captured: list = []
     _orig_rag = engine._rag_retrieve
-
+ 
     def _capturing_rag(query, energy_node):
-        t0 = time.perf_counter()
         chunks = _orig_rag(query, energy_node)
         rag_captured.extend(chunks)
         return chunks
-
+ 
     engine._rag_retrieve = _capturing_rag
-
+ 
+    # ── Capture the exact prompt sent to Ollama ───────────────────────────
+    # We monkey-patch counselor's _build_chat_messages to intercept the call.
+    prompt_captured = {"system": None, "messages": None, "type": "counselor"}
+ 
+    try:
+        import souli_pipeline.conversation.counselor as _counselor_mod
+ 
+        _orig_generate = _counselor_mod.generate_counselor_response
+        _orig_solution = _counselor_mod.generate_solution_response
+ 
+        def _capturing_counselor(history, user_message, rag_chunks, **kwargs):
+            # Reconstruct exactly what gets built inside generate_counselor_response
+            from souli_pipeline.conversation.counselor import (
+                _build_chat_messages, _build_counselor_system,
+            )
+            msgs = _build_chat_messages(
+                history, user_message, rag_chunks,
+                energy_node=kwargs.get("energy_node"),
+            )
+            sys_p = _build_counselor_system(
+                user_name=kwargs.get("user_name"),
+                phase=kwargs.get("phase"),
+                asked_topics=kwargs.get("asked_topics"),
+            )
+            prompt_captured["system"] = sys_p
+            prompt_captured["messages"] = msgs
+            prompt_captured["type"] = "counselor"
+            return _orig_generate(history, user_message, rag_chunks, **kwargs)
+ 
+        def _capturing_solution(energy_node, framework_solution, user_context, **kwargs):
+            from souli_pipeline.conversation.counselor import (
+                _build_solution_prompt, _SOLUTION_SYSTEM,
+            )
+            p = _build_solution_prompt(energy_node, framework_solution, user_context)
+            prompt_captured["system"] = _SOLUTION_SYSTEM
+            prompt_captured["messages"] = [{"role": "user", "content": p}]
+            prompt_captured["type"] = "solution"
+            prompt_captured["framework_solution"] = framework_solution
+            prompt_captured["energy_node"] = energy_node
+            prompt_captured["user_context"] = user_context[:400]
+            return _orig_solution(energy_node, framework_solution, user_context, **kwargs)
+ 
+        _counselor_mod.generate_counselor_response = _capturing_counselor
+        _counselor_mod.generate_solution_response  = _capturing_solution
+        patched_counselor = True
+    except Exception:
+        patched_counselor = False
+ 
+    # ── Run the turn ──────────────────────────────────────────────────────
     phase_before = engine.state.phase
     t_start = time.perf_counter()
-
+ 
     full_response = ""
     source = "llm"
     try:
@@ -365,14 +439,22 @@ def run_turn(user_input: str) -> tuple[str, dict]:
         except Exception as e:
             full_response = f"[Engine error: {e}]"
             source = "fallback"
-
+ 
     elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+ 
+    # ── Restore patches ───────────────────────────────────────────────────
     engine._rag_retrieve = _orig_rag
-
+    if patched_counselor:
+        _counselor_mod.generate_counselor_response = _orig_generate
+        _counselor_mod.generate_solution_response  = _orig_solution
+ 
     phase_after = engine.state.phase
     diag = engine.diagnosis_summary
-
-    # Build a lightweight debug event
+ 
+    # ── Pull the triple-diagnosis breakdown if available ──────────────────
+    diag_detail = getattr(engine.state, "_last_diagnosis_detail", None) or {}
+ 
+    # ── Build debug event ─────────────────────────────────────────────────
     debug_ev = {
         "turn":         engine.state.turn_count,
         "user_text":    user_input,
@@ -380,34 +462,58 @@ def run_turn(user_input: str) -> tuple[str, dict]:
         "phase_after":  phase_after,
         "kb_mode":      st.session_state.kb_mode,
         "collection":   _active_collection(),
+ 
+        # ── Diagnosis (now includes full triple-hybrid breakdown) ──────────
         "diagnosis": {
             "ran":          True,
             "energy_node":  diag.get("energy_node"),
             "confidence":   diag.get("confidence", "unknown"),
+            # New fields from triple hybrid:
+            "detail":       diag_detail,
+            # Is this a fallback? True if confidence is keyword_fallback
+            "is_fallback":  diag.get("confidence", "") == "keyword_fallback",
         },
+ 
+        # ── RAG ────────────────────────────────────────────────────────────
         "rag": {
-            "ran":            True,
-            "query":          user_input,
-            "energy_node_filter": diag.get("energy_node"),
-            "results_count":  len(rag_captured),
-            "results":        rag_captured[:5],
+            "ran":                  True,
+            "query":                user_input,
+            "energy_node_filter":   diag.get("energy_node"),
+            "results_count":        len(rag_captured),
+            "results":              rag_captured[:5],   # full chunks with text
         },
+ 
+        # ── LLM / Prompt ───────────────────────────────────────────────────
         "llm": {
-            "ran":            True,
-            "model":          engine.chat_model,
-            "used_fallback":  source == "fallback",
-            "phase":          phase_before,
-            "history_length": len(engine.state.messages),
-            "rag_chunks_injected": len(rag_captured),
-            "latency_ms":     elapsed_ms,
+            "ran":                  True,
+            "model":                engine.chat_model,
+            "used_fallback":        source == "fallback",
+            "phase":                phase_before,
+            "history_length":       len(engine.state.messages),
+            "rag_chunks_injected":  len(rag_captured),
+            "latency_ms":           elapsed_ms,
+            # New: exact prompt captured
+            "prompt_type":          prompt_captured.get("type", "counselor"),
+            "prompt_system":        prompt_captured.get("system"),
+            "prompt_messages":      prompt_captured.get("messages"),
         },
+ 
+        # ── Solution phase extra data ──────────────────────────────────────
+        "solution": {
+            "active":              phase_after == "solution" or phase_before == "solution",
+            "framework_solution":  prompt_captured.get("framework_solution"),
+            "energy_node":         prompt_captured.get("energy_node"),
+            "user_context":        prompt_captured.get("user_context"),
+        } if prompt_captured.get("type") == "solution" else {"active": False},
+ 
+        # ── Full state snapshot ────────────────────────────────────────────
         "state_after": {
-            "phase":            engine.state.phase,
-            "energy_node":      engine.state.energy_node,
-            "turn_count":       engine.state.turn_count,
-            "intent":           engine.state.intent,
-            "user_name":        engine.state.user_name,
-            "summary_attempted":engine.state.summary_attempted,
+            "phase":                engine.state.phase,
+            "energy_node":          engine.state.energy_node,
+            "turn_count":           engine.state.turn_count,
+            "intent":               engine.state.intent,
+            "user_name":            engine.state.user_name,
+            "summary_attempted":    engine.state.summary_attempted,
         },
     }
 
@@ -415,7 +521,7 @@ def run_turn(user_input: str) -> tuple[str, dict]:
         engine._debug_events = []
     engine._debug_events.append(debug_ev)
     engine.latest_debug = debug_ev
-
+ 
     return full_response, debug_ev
 
 
@@ -445,20 +551,33 @@ def render_phase_flow():
     html = '<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">' + "".join(parts) + "</div>"
     st.markdown(html, unsafe_allow_html=True)
 
-
 def render_turn_debug(ev: Dict[str, Any]):
+    """
+    Render the full debug panel for one conversation turn.
+    Sections:
+      1. Phase Transition
+      2. KB Used
+      3. User Input
+      4. 🧠 Diagnosis  ← ENHANCED: shows keyword / embedding / tagger breakdown
+      5. 🗄️ Qdrant RAG ← ENHANCED: shows actual chunk text + scores
+      6. 🤖 LLM Call   ← ENHANCED: shows full prompt inspector
+      7. 💊 Solution   ← NEW: shows framework content when in solution phase
+      8. ⚠️ Fallback   ← NEW: big warning banner when keyword_fallback active
+    """
     if not ev:
         return
-
-    # Phase transition
+    # ── 1. Phase Transition ───────────────────────────────────────────────
     st.markdown('<div class="dbg-section-header">Phase Transition</div>', unsafe_allow_html=True)
     pb, pa = ev.get("phase_before", "?"), ev.get("phase_after", "?")
     if pb == pa:
         st.markdown(phase_badge(pb) + ' <span style="color:#94a3b8;">no change</span>', unsafe_allow_html=True)
     else:
-        st.markdown(phase_badge(pb) + ' <span style="color:#16a34a;font-size:1rem;">→</span> ' + phase_badge(pa), unsafe_allow_html=True)
-
-    # KB mode used for this turn
+        st.markdown(
+            phase_badge(pb) + ' <span style="color:#16a34a;font-size:1rem;">→</span> ' + phase_badge(pa),
+            unsafe_allow_html=True,
+        )
+ 
+    # ── 2. KB Mode ────────────────────────────────────────────────────────
     kb = ev.get("kb_mode", "?")
     coll = ev.get("collection", "?")
     color = "#2563eb" if kb == "improved" else "#ca8a04"
@@ -469,60 +588,244 @@ def render_turn_debug(ev: Dict[str, Any]):
         f'</span>',
         unsafe_allow_html=True,
     )
-
-    # User text
+ 
+    # ── 3. User Input ─────────────────────────────────────────────────────
     st.markdown('<div class="dbg-section-header">User Input</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="info-box mono">{ev.get("user_text","")[:400]}</div>', unsafe_allow_html=True)
-
-    # Diagnosis
+ 
+    # ── 4. 🧠 ENHANCED Diagnosis ──────────────────────────────────────────
     diag = ev.get("diagnosis", {})
-    with st.expander("🧠 Diagnosis", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Energy Node**")
+    detail = diag.get("detail", {})
+    is_fallback = diag.get("is_fallback", False)
+ 
+    # Fallback warning banner — shows prominently at the top of diagnosis
+    if is_fallback:
+        st.markdown(
+            """<div style="background:#3a1a1a;border:2px solid #ef4444;border-radius:8px;
+            padding:10px 14px;margin:6px 0;">
+            <span style="color:#ef4444;font-weight:700;font-size:0.9rem;">
+            ⚠️ KEYWORD FALLBACK ACTIVE
+            </span><br>
+            <span style="color:#fca5a5;font-size:0.8rem;">
+            Neither gold embedding nor Qwen tagger produced a confident result.
+            The energy node was guessed from keyword matching only.
+            Response quality may be poor.
+            </span></div>""",
+            unsafe_allow_html=True,
+        )
+ 
+    with st.expander("🧠 Diagnosis — full breakdown", expanded=True):
+        # Final result row
+        col_node, col_conf = st.columns(2)
+        with col_node:
+            st.markdown("**Final Node**")
             st.markdown(node_badge(diag.get("energy_node")), unsafe_allow_html=True)
-        with col2:
+        with col_conf:
             st.markdown("**Confidence**")
             st.markdown(conf_badge(diag.get("confidence", "unknown")), unsafe_allow_html=True)
-
-    # RAG
+ 
+        st.markdown("---")
+        st.markdown("**Method breakdown** — how each signal voted:")
+ 
+        # Three columns: keyword | embedding | tagger
+        c1, c2, c3 = st.columns(3)
+ 
+        # Keyword
+        kw = detail.get("keyword", {})
+        with c1:
+            st.markdown("**1️⃣ Keyword**")
+            st.markdown(
+                f'<div style="background:#1e293b;border-radius:6px;padding:8px;font-size:0.8rem;">'
+                f'<div style="color:#94a3b8;">Always runs</div>'
+                f'<div style="color:#e2e8f0;font-weight:600;margin-top:4px;">{kw.get("node","—")}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+ 
+        # Embedding
+        emb = detail.get("embedding", {})
+        with c2:
+            st.markdown("**2️⃣ Gold Embedding**")
+            emb_available = emb.get("available", False)
+            emb_hit = emb.get("confidence") == "embedding_match"
+            emb_node = emb.get("node", "—")
+            emb_sim = emb.get("similarity")
+            if not emb_available:
+                status_color, status_text = "#6b7280", "No gold.xlsx loaded"
+            elif emb_hit:
+                status_color, status_text = "#16a34a", f"Hit (sim={emb_sim:.3f})" if emb_sim else "Hit"
+            else:
+                status_color, status_text = "#d97706", f"Below threshold (sim={emb_sim:.3f})" if emb_sim else "Below threshold"
+            st.markdown(
+                f'<div style="background:#1e293b;border-radius:6px;padding:8px;font-size:0.8rem;">'
+                f'<div style="color:{status_color};">{status_text}</div>'
+                f'<div style="color:#e2e8f0;font-weight:600;margin-top:4px;">{emb_node if emb_hit else "—"}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+ 
+        # Tagger
+        tgr = detail.get("tagger", {})
+        with c3:
+            st.markdown("**3️⃣ Qwen Tagger**")
+            tgr_available = tgr.get("available", False)
+            tgr_node = tgr.get("node", "—")
+            tgr_fallback = tgr.get("used_fallback", False)
+            tgr_reason = tgr.get("reason", "")
+            if not tgr_available:
+                t_color, t_status = "#6b7280", "Ollama offline"
+            elif tgr_fallback:
+                t_color, t_status = "#d97706", "Tagger fell back to keyword"
+            else:
+                t_color, t_status = "#16a34a", "Qwen used ✓"
+            st.markdown(
+                f'<div style="background:#1e293b;border-radius:6px;padding:8px;font-size:0.8rem;">'
+                f'<div style="color:{t_color};">{t_status}</div>'
+                f'<div style="color:#e2e8f0;font-weight:600;margin-top:4px;">{tgr_node}</div>'
+                f'{"<div style=color:#64748b;font-size:0.72rem;margin-top:2px;>" + tgr_reason[:60] + "</div>" if tgr_reason else ""}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+ 
+    # ── 5. 🗄️ ENHANCED RAG Chunks ─────────────────────────────────────────
     rag = ev.get("rag", {})
     rag_count = rag.get("results_count", 0)
-    with st.expander(f"🗄️ Qdrant — {rag_count} chunks  [{rag.get('energy_node_filter','no filter')}]", expanded=True):
-        results = rag.get("results", [])
+    results = rag.get("results", [])
+ 
+    with st.expander(
+        f"🗄️ Qdrant — {rag_count} chunks  [filter: {rag.get('energy_node_filter','none')}]",
+        expanded=True,
+    ):
         if not results:
-            st.markdown('<div class="info-box" style="color:#dc2626;border-left:3px solid #fca5a5;">⚠️ No chunks retrieved.</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="info-box" style="color:#dc2626;border-left:3px solid #fca5a5;">'
+                '⚠️ No chunks retrieved. The LLM prompt has ZERO teaching context.<br>'
+                'This is a major cause of poor/generic responses.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
         else:
             for i, r in enumerate(results, 1):
                 score = r.get("score", 0)
+                chunk_node = r.get("energy_node", "")
+                diag_node = rag.get("energy_node_filter", "")
+                # Flag if chunk node doesn't match diagnosed node — context bleed
+                node_mismatch = chunk_node and diag_node and chunk_node != diag_node
                 score_color = "#16a34a" if score > 0.7 else "#d97706" if score > 0.45 else "#dc2626"
+                mismatch_html = (
+                    f'<span style="color:#ef4444;font-size:0.7rem;"> ⚠️ node mismatch!</span>'
+                    if node_mismatch else ""
+                )
                 st.markdown(
                     f'<div class="rag-card">'
-                    f'<span class="rag-node">[{r.get("energy_node","")}]</span>  '
+                    f'<span class="rag-node">[{chunk_node}]</span>{mismatch_html}  '
                     f'<span class="rag-score" style="color:{score_color};">score: {score:.4f}</span>'
                     f'<span class="rag-source">  {r.get("source_video","")}</span>'
-                    f'<div class="rag-text">{r.get("text","")[:300]}…</div>'
+                    f'<div class="rag-text">{r.get("text","")[:350]}</div>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
-
-    # LLM
+ 
+    # ── 6. 🤖 ENHANCED LLM / Full Prompt Inspector ────────────────────────
     llm = ev.get("llm", {})
-    with st.expander("🤖 LLM Call", expanded=True):
+    fallback_flag = llm.get("used_fallback", False)
+ 
+    with st.expander(
+        "🤖 LLM Call" + (" — ⚠️ FALLBACK" if fallback_flag else ""),
+        expanded=True,
+    ):
         c1, c2, c3 = st.columns(3)
         c1.markdown(f'<span class="badge badge-llm">{llm.get("model","?")}</span>', unsafe_allow_html=True)
-        if llm.get("used_fallback"):
-            c2.markdown('<span class="badge badge-fallback">⚠ Fallback</span>', unsafe_allow_html=True)
+        c2.metric("History msgs", llm.get("history_length", 0))
+        c3.metric("Latency", f'{llm.get("latency_ms", 0)} ms')
+ 
+        if fallback_flag:
+            st.error("⚠️ Ollama was unavailable — response came from hardcoded fallback strings, NOT from the LLM.")
+ 
+        st.markdown(f"RAG chunks injected: **{llm.get('rag_chunks_injected', 0)}**")
+ 
+        # ── Full Prompt Inspector ──────────────────────────────────────────
+        prompt_type = llm.get("prompt_type", "counselor")
+        sys_p = llm.get("prompt_system")
+        msgs_p = llm.get("prompt_messages")
+ 
+        st.markdown("---")
+        st.markdown(
+            f"**📋 Prompt Inspector** "
+            f'<span style="color:#64748b;font-size:0.75rem;">(type: {prompt_type})</span>',
+            unsafe_allow_html=True,
+        )
+ 
+        if sys_p:
+            with st.expander("System Prompt", expanded=False):
+                st.code(sys_p, language="text")
         else:
-            c2.markdown('<span class="badge badge-ok">✓ LLM OK</span>', unsafe_allow_html=True)
-        lat = llm.get("latency_ms")
-        if lat:
-            color = "#16a34a" if lat < 2000 else "#d97706" if lat < 6000 else "#dc2626"
-            c3.markdown(f'<span style="color:{color};font-weight:700;">{lat:.0f} ms</span>', unsafe_allow_html=True)
-
-    # Full state
-    with st.expander("📋 Full State After Turn", expanded=False):
-        st.json(ev.get("state_after", {}))
+            st.caption("System prompt not captured (turn may have used fallback path)")
+ 
+        if msgs_p:
+            with st.expander(f"Messages array ({len(msgs_p)} msgs)", expanded=False):
+                for i, m in enumerate(msgs_p):
+                    role = m.get("role", "?")
+                    content = m.get("content", "")
+                    role_color = "#2563eb" if role == "user" else "#16a34a" if role == "assistant" else "#9333ea"
+                    # Highlight RAG injection message
+                    is_rag_injection = "[CONTEXT" in content
+                    border = "2px solid #d97706" if is_rag_injection else "1px solid #334155"
+                    label = f"[{i}] {role}" + (" ← RAG injection" if is_rag_injection else "")
+                    st.markdown(
+                        f'<div style="border:{border};border-radius:6px;padding:8px;margin:4px 0;">'
+                        f'<div style="color:{role_color};font-size:0.72rem;font-weight:700;">{label}</div>'
+                        f'<div style="color:#cbd5e1;font-size:0.8rem;margin-top:4px;white-space:pre-wrap;">'
+                        f'{content[:600]}'
+                        f'{"..." if len(content)>600 else ""}'
+                        f'</div></div>',
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.caption("Messages not captured.")
+ 
+    # ── 7. 💊 Solution Phase Inspector (only shown when in solution phase) ─
+    sol = ev.get("solution", {})
+    if sol.get("active"):
+        fw = sol.get("framework_solution") or {}
+        sol_node = sol.get("energy_node", "")
+        user_ctx = sol.get("user_context", "")
+ 
+        with st.expander("💊 Solution Phase — framework content used", expanded=True):
+            if not fw:
+                st.warning(
+                    "No framework solution found for this node. "
+                    "The engine fell back to generic LLM response without structured practices."
+                )
+            else:
+                st.markdown(f"**Node:** `{sol_node}`")
+                st.markdown(f"**User context passed to LLM:** _{user_ctx}_")
+                st.markdown("---")
+ 
+                healing = fw.get("primary_healing_principles", "")
+                practices = fw.get("primary_practices ( 7 min quick relief)", "")
+                deeper = fw.get("deeper_meditations_program ( 7 day quick recovery)", "")
+                caution = fw.get("Caution", "")
+ 
+                if healing:
+                    st.markdown("**Healing Principles** (injected into prompt):")
+                    st.info(healing[:500])
+                if practices:
+                    st.markdown("**Quick Relief Practices — 7 min** (injected):")
+                    st.success(practices[:400])
+                if deeper:
+                    st.markdown("**7-Day Recovery Program** (injected):")
+                    st.info(deeper[:400])
+                if caution:
+                    st.markdown("**Caution** (injected):")
+                    st.warning(caution[:200])
+ 
+                if not healing and not practices:
+                    st.error(
+                        "Framework entry exists but has empty healing + practices fields. "
+                        "Check your Energy Framework Excel — this node may have missing data."
+                    )
+ 
 
 
 def render_qdrant_inspector(cfg):
