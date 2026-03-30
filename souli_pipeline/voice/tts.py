@@ -53,6 +53,15 @@ class EdgeTTS:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
+    async def stream_async(self, text: str) -> AsyncGenerator[bytes, None]:
+        """Stream audio chunks as they're generated."""
+        import edge_tts
+
+        communicate = edge_tts.Communicate(text, self.voice, rate=self.rate, pitch=self.pitch)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                yield chunk["data"]
+
     @timed("tts.edge_synthesize")
     def synthesize(self, text: str) -> bytes:
         """Synchronous wrapper for synthesize_async."""

@@ -271,7 +271,7 @@ def get_stt():
 @st.cache_resource(show_spinner="Loading Edge TTS...")
 def get_tts():
     from souli_pipeline.voice.tts import EdgeTTS
-    return EdgeTTS(voice="en-US-ChristopherNeural", rate="-10%", pitch="-15Hz")
+    return EdgeTTS(voice="en-US-GuyNeural", rate="-10%", pitch="-15Hz")
 
 
 def _reset_all():
@@ -1199,7 +1199,7 @@ with right_col:
 
         if reasoning:
             parts.append(
-                f"<span style='color:#64748b;font-size:0.72rem;font-style:italic;'>"
+                f"<span style='color:#64748b;font-size:0.62rem;font-style:italic;'>"
                 f"{reasoning}</span>"
             )
 
