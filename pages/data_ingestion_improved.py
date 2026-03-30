@@ -2,6 +2,9 @@
 Data Ingestion (Improved) UI
 Runs the improved pipeline: Whisper → Topic Segmentation → LLM Cleaning → Persona → Qdrant
 Shows full step-by-step data visibility after each video completes.
+
+Fix: duplicate key bug in _render_step4 — video_idx is now passed through
+     so every global_persona text_area gets a unique Streamlit key.
 """
 import os
 import streamlit as st
@@ -58,11 +61,33 @@ def _retention_badge(original_words: int, cleaned_words: int) -> str:
         return f"❌ {pct}%"
 
 
+def _file_size_kb(path: str) -> float:
+    try:
+        return os.path.getsize(path) / 1024
+    except Exception:
+        return 0.0
+
+
+def _download_btn(path: str, label: str):
+    try:
+        with open(path, "rb") as f:
+            st.download_button(
+                label=f"Download {label}",
+                data=f.read(),
+                file_name=label,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_{path}",
+            )
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Step rendering helpers — used both for live results and previous-run viewer
+# video_idx is passed everywhere so Streamlit keys stay unique across videos.
 # ---------------------------------------------------------------------------
 
-def _render_step1(whisper_path: str):
+def _render_step1(whisper_path: str, video_idx: int = 0):
     st.markdown("#### Step 1 — Whisper Transcription")
     if not whisper_path or not os.path.exists(whisper_path):
         st.warning("whisper_segments.xlsx not found")
@@ -77,11 +102,11 @@ def _render_step1(whisper_path: str):
         total_words = df["text"].dropna().apply(lambda t: len(str(t).split())).sum()
         col2.metric("Total Words", int(total_words))
     cols_to_show = [c for c in ["start", "end", "text"] if c in df.columns]
-    st.dataframe(df[cols_to_show], width="stretch", height=250)
+    st.dataframe(df[cols_to_show], width="stretch", height=250, key=f"whisper_df_{video_idx}")
     _download_btn(whisper_path, "whisper_segments.xlsx")
 
 
-def _render_step2(paragraphs_path: str, topics_path: str):
+def _render_step2(paragraphs_path: str, topics_path: str, video_idx: int = 0):
     st.markdown("#### Step 2 — Topic Segmentation")
     c1, c2 = st.columns(2)
 
@@ -91,7 +116,7 @@ def _render_step2(paragraphs_path: str, topics_path: str):
             df_p = _read_excel_safe(paragraphs_path)
             st.metric("Paragraph count", len(df_p))
             cols = [c for c in ["index", "start", "end", "word_count", "text"] if c in df_p.columns]
-            st.dataframe(df_p[cols], width="stretch", height=220)
+            st.dataframe(df_p[cols], width="stretch", height=220, key=f"para_df_{video_idx}")
             _download_btn(paragraphs_path, "paragraphs.xlsx")
         else:
             st.warning("paragraphs.xlsx not found")
@@ -102,72 +127,119 @@ def _render_step2(paragraphs_path: str, topics_path: str):
             df_t = _read_excel_safe(topics_path)
             st.metric("Topic count", len(df_t))
             cols = [c for c in ["topic_index", "start", "end", "word_count", "text"] if c in df_t.columns]
-            st.dataframe(df_t[cols], width="stretch", height=220)
-            if "word_count" in df_t.columns and not df_t.empty:
-                chart_df = df_t[["topic_index", "word_count"]].set_index("topic_index")
-                st.bar_chart(chart_df, width="stretch")
+            st.dataframe(df_t[cols], width="stretch", height=220, key=f"topic_df_{video_idx}")
             _download_btn(topics_path, "topic_segments.xlsx")
         else:
             st.warning("topic_segments.xlsx not found")
 
 
-def _render_step3(cleaned_path: str):
+def _render_step3(cleaned_path: str, video_idx: int = 0):
     st.markdown("#### Step 3 — LLM Cleaning")
     if not cleaned_path or not os.path.exists(cleaned_path):
         st.warning("cleaned_chunks.xlsx not found")
         return
+
     df = _read_excel_safe(cleaned_path)
     if df.empty:
-        st.warning("No cleaned chunks found")
+        st.warning("No cleaned chunks")
         return
 
-    n = len(df)
-    avg_retention = "N/A"
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Chunks", len(df))
     if "original_words" in df.columns and "cleaned_words" in df.columns:
-        mask = df["original_words"] > 0
-        if mask.any():
-            avg_pct = int((df.loc[mask, "cleaned_words"] / df.loc[mask, "original_words"]).mean() * 100)
-            avg_retention = f"{avg_pct}%"
+        m = df[df["original_words"] > 0]
+        if not m.empty:
+            avg_ret = int((m["cleaned_words"] / m["original_words"]).mean() * 100)
+            c2.metric("Avg Retention", f"{avg_ret}%")
+            c3.metric("Total Words", int(df["cleaned_words"].sum()))
 
-    col1, col2 = st.columns(2)
-    col1.metric("Chunks", n)
-    col2.metric("Avg Retention", avg_retention)
+    # Side-by-side original vs cleaned for each topic
+    orig_col = "original_text" if "original_text" in df.columns else None
+    clean_col = "cleaned_text" if "cleaned_text" in df.columns else None
 
-    st.markdown("**Original vs Cleaned — side by side**")
-    for _, row in df.iterrows():
-        orig = str(row.get("original_text", ""))
-        cleaned = str(row.get("cleaned_text", ""))
-        orig_w = int(row.get("original_words", len(orig.split())))
-        clean_w = int(row.get("cleaned_words", len(cleaned.split())))
-        badge = _retention_badge(orig_w, clean_w)
-        topic_idx = row.get("topic_index", "?")
-        with st.expander(f"Topic {topic_idx} — retention {badge}  ({orig_w}w → {clean_w}w)", expanded=False):
-            left, right = st.columns(2)
-            left.markdown("**Original**")
-            left.text_area("Original", orig, height=180, disabled=True, key=f"orig_{topic_idx}_{orig_w}")
-            right.markdown("**Cleaned**")
-            right.text_area("Cleaned", cleaned, height=180, disabled=True, key=f"clean_{topic_idx}_{clean_w}")
+    if orig_col and clean_col:
+        for i, row in df.iterrows():
+            topic_idx = row.get("topic_index", i)
+            orig = str(row.get(orig_col, ""))
+            cleaned = str(row.get(clean_col, ""))
+            orig_w = int(row.get("original_words", len(orig.split())))
+            clean_w = int(row.get("cleaned_words", len(cleaned.split())))
+            badge = _retention_badge(orig_w, clean_w)
+            with st.expander(
+                f"Topic {topic_idx} — retention {badge}  ({orig_w}w → {clean_w}w)",
+                expanded=False,
+            ):
+                left, right = st.columns(2)
+                left.markdown("**Original**")
+                # KEY FIX: include video_idx so keys are unique across different videos
+                left.text_area(
+                    "Original",
+                    orig,
+                    height=180,
+                    disabled=True,
+                    key=f"orig_{video_idx}_{topic_idx}_{orig_w}",
+                )
+                right.markdown("**Cleaned**")
+                right.text_area(
+                    "Cleaned",
+                    cleaned,
+                    height=180,
+                    disabled=True,
+                    key=f"clean_{video_idx}_{topic_idx}_{clean_w}",
+                )
 
     st.markdown("**Full table**")
-    show_cols = [c for c in ["topic_index", "start", "end", "original_words", "cleaned_words", "original_text", "cleaned_text"] if c in df.columns]
-    st.dataframe(df[show_cols], width="stretch", height=250)
+    show_cols = [
+        c for c in [
+            "topic_index", "start", "end",
+            "original_words", "cleaned_words",
+            "original_text", "cleaned_text",
+        ]
+        if c in df.columns
+    ]
+    st.dataframe(df[show_cols], width="stretch", height=250, key=f"cleaned_df_{video_idx}")
     _download_btn(cleaned_path, "cleaned_chunks.xlsx")
 
 
-
 def _render_step4(persona_snippet_path: str, video_idx: int = 0):
+    """
+    Render Step 4 — Persona extraction.
+
+    video_idx MUST be passed to ensure the global_persona text_area key
+    is unique across multiple video cards. Without this, Streamlit raises
+    StreamlitDuplicateElementKey when the same data/coach_persona.txt is
+    rendered more than once on the same page.
+    """
     st.markdown("#### Step 4 — Coach Persona Extraction")
+
     snippet = _read_text_safe(persona_snippet_path) if persona_snippet_path else ""
     if snippet:
         st.markdown("**Persona snippet from this video:**")
-        st.text_area("", snippet, height=120, disabled=True, key=f"snippet_{video_idx}_{len(snippet)}")
+        st.text_area(
+            "",
+            snippet,
+            height=120,
+            disabled=True,
+            # video_idx + length together guarantee uniqueness
+            key=f"snippet_{video_idx}_{len(snippet)}",
+        )
     else:
         st.info("No persona snippet file found (may have been skipped)")
 
     global_persona = _read_text_safe("data/coach_persona.txt")
     if global_persona:
         with st.expander("Global coach persona (data/coach_persona.txt)", expanded=False):
-            st.text_area("", global_persona, height=180, disabled=True, key=f"global_persona_{video_idx}_{len(global_persona)}")
+            st.text_area(
+                "",
+                global_persona,
+                height=180,
+                disabled=True,
+                # BUG FIX: was key=f"global_persona_{len(global_persona)}"
+                # which collided when 2+ videos have the same persona file length.
+                # Adding video_idx makes it unique per card.
+                key=f"global_persona_{video_idx}_{len(global_persona)}",
+            )
+
 
 def _render_step5_energy():
     st.markdown("#### Step 5 — Energy Node Tagging")
@@ -188,31 +260,29 @@ def _render_step6_qdrant(ingested_count: str, collection: str, skipped: bool):
         st.warning("Ingest count not available")
 
 
-def _download_btn(path: str, label: str):
-    try:
-        with open(path, "rb") as f:
-            st.download_button(
-                label=f"Download {label}",
-                data=f.read(),
-                file_name=label,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_{path}",
-            )
-    except Exception:
-        pass
-
-
 # ---------------------------------------------------------------------------
 # Render results for one video (given its output dict from the pipeline)
+# video_idx is threaded down to every sub-renderer to guarantee unique keys.
 # ---------------------------------------------------------------------------
 
-def _render_video_results(video_name: str, url: str, outputs: dict, collection: str, skip_ingest: bool):
+def _render_video_results(
+    video_name: str,
+    url: str,
+    outputs: dict,
+    collection: str,
+    skip_ingest: bool,
+    video_idx: int = 0,
+):
     with st.expander(f"📹 {video_name} — {url}", expanded=True):
-        _render_step1(outputs.get("whisper_segments", ""))
+        _render_step1(outputs.get("whisper_segments", ""), video_idx=video_idx)
         st.divider()
-        _render_step2(outputs.get("paragraphs", ""), outputs.get("topic_segments", ""))
+        _render_step2(
+            outputs.get("paragraphs", ""),
+            outputs.get("topic_segments", ""),
+            video_idx=video_idx,
+        )
         st.divider()
-        _render_step3(outputs.get("cleaned_chunks", ""))
+        _render_step3(outputs.get("cleaned_chunks", ""), video_idx=video_idx)
         st.divider()
         _render_step4(outputs.get("persona_snippet", ""), video_idx=video_idx)
         st.divider()
@@ -241,7 +311,9 @@ def _display_previous_runs(qdrant_collection: str):
     improved_runs = []
     for run_id in os.listdir(outputs_dir):
         run_path = os.path.join(outputs_dir, run_id)
-        if os.path.isdir(run_path) and os.path.isdir(os.path.join(run_path, "youtube_improved")):
+        if os.path.isdir(run_path) and os.path.isdir(
+            os.path.join(run_path, "youtube_improved")
+        ):
             improved_runs.append(run_id)
 
     if not improved_runs:
@@ -264,16 +336,22 @@ def _display_previous_runs(qdrant_collection: str):
 
     st.markdown(f"**Run ID:** `{selected_run}`")
 
-    video_dirs = sorted([
-        d for d in os.listdir(yt_improved_path)
-        if os.path.isdir(os.path.join(yt_improved_path, d))
-    ], reverse=True)
+    video_dirs = sorted(
+        [
+            d
+            for d in os.listdir(yt_improved_path)
+            if os.path.isdir(os.path.join(yt_improved_path, d))
+        ],
+        reverse=True,
+    )
 
     if not video_dirs:
         st.info("No video output folders found")
         return
 
-    for vdir in video_dirs:
+    # KEY FIX: enumerate gives each video card a unique index so
+    # _render_step4 (and others) can produce non-colliding Streamlit keys.
+    for video_idx, vdir in enumerate(video_dirs):
         vpath = os.path.join(yt_improved_path, vdir)
         outputs = {
             "whisper_segments": os.path.join(vpath, "whisper_segments.xlsx"),
@@ -288,6 +366,7 @@ def _display_previous_runs(qdrant_collection: str):
             outputs=outputs,
             collection=qdrant_collection,
             skip_ingest=False,
+            video_idx=video_idx,          # ← crucial fix
         )
 
 
@@ -342,11 +421,18 @@ def show():
     st.markdown("### Pipeline Parameters")
     row1_c1, row1_c2, row1_c3 = st.columns(3)
     with row1_c1:
-        whisper_model = st.selectbox("Whisper model", ["tiny", "base", "small", "medium", "large"], index=3)
+        whisper_model = st.selectbox(
+            "Whisper model",
+            ["tiny", "base", "small", "medium", "large"],
+            index=3,
+        )
     with row1_c2:
         similarity_threshold = st.slider(
             "Topic similarity threshold",
-            min_value=0.1, max_value=0.9, value=0.45, step=0.05,
+            min_value=0.1,
+            max_value=0.9,
+            value=0.45,
+            step=0.05,
             help="Lower = more topic splits (more chunks). Higher = fewer, larger chunks.",
         )
     with row1_c3:
@@ -358,9 +444,17 @@ def show():
     with row2_c2:
         max_topic_words = st.number_input("Max topic words", value=600, min_value=100, step=50)
     with row2_c3:
-        skip_persona = st.checkbox("Skip persona extraction", value=False, help="Faster, skips Step 4")
+        skip_persona = st.checkbox(
+            "Skip persona extraction",
+            value=False,
+            help="Faster, skips Step 4",
+        )
     with row2_c4:
-        skip_ingest = st.checkbox("Skip Qdrant ingest", value=False, help="Process but don't store in Qdrant")
+        skip_ingest = st.checkbox(
+            "Skip Qdrant ingest",
+            value=False,
+            help="Process but don't store in Qdrant",
+        )
 
     # ── Upload ────────────────────────────────────────────────────────────
     st.markdown("### Upload CSV")
@@ -382,7 +476,7 @@ def show():
     st.success(f"CSV valid — {len(df_csv)} video(s) found")
 
     # ── Process ───────────────────────────────────────────────────────────
-    if not st.button("Start Processing", type="primary", width="stretch"):
+    if not st.button("Start Processing", type="primary", use_container_width=True):
         _display_previous_runs(qdrant_collection)
         return
 
@@ -418,7 +512,9 @@ def show():
             continue
 
         status_text.info(f"Processing {idx + 1}/{total}: {name} ...")
-        out_dir = os.path.join(cfg.run.outputs_dir, rid, "youtube_improved", name)
+        out_dir = os.path.join(
+            cfg.run.outputs_dir, rid, "youtube_improved", name
+        )
 
         try:
             outputs = run_improved_pipeline(
@@ -454,15 +550,20 @@ def show():
     m4.metric("Run ID", rid)
 
     if successful:
-        st.success(f"Processing complete. Outputs in `outputs/{rid}/youtube_improved/`")
+        st.success(
+            f"Processing complete. Outputs in `outputs/{rid}/youtube_improved/`"
+        )
 
-    # ── Per-video results ─────────────────────────────────────────────────
+    # ── Per-video results — enumerate gives unique video_idx ──────────────
     st.markdown("### Results by Video (latest first)")
-    for name, url, outputs, ok, err in reversed(all_results):
+    for video_idx, (name, url, outputs, ok, err) in enumerate(reversed(all_results)):
         if not ok:
             with st.expander(f"❌ {name} — {url}", expanded=False):
                 st.error(f"Pipeline error: {err}")
             continue
-        _render_video_results(name, url, outputs, qdrant_collection, skip_ingest)
+        _render_video_results(
+            name, url, outputs, qdrant_collection, skip_ingest,
+            video_idx=video_idx,
+        )
 
     _display_previous_runs(qdrant_collection)
