@@ -733,6 +733,8 @@ def render_turn_debug(ev: Dict[str, Any]):
         else:
             tgr_status_color, tgr_status = "#16a34a", "Qwen used ✓"
  
+        tgr_reason_html = f'<div style="color:#64748b;font-size:0.7rem;margin-top:2px;">{tgr_reason[:55]}…</div>' if tgr_reason and not tgr_fallback else ""
+
         with c3:
             st.markdown(
                 f'<div style="background:#f8fafc;border:1px solid #e2e8f0;'
@@ -743,7 +745,7 @@ def render_turn_debug(ev: Dict[str, Any]):
                 f'<div style="color:#1e293b;font-weight:700;font-size:0.85rem;margin-top:6px;">'
                 f'{tgr_node.replace("_energy","").replace("_"," ").title() if tgr_available else "—"}'
                 f'</div>'
-                f'{"<div style=\\"color:#64748b;font-size:0.7rem;margin-top:2px;\\">" + tgr_reason[:55] + "…</div>" if tgr_reason and not tgr_fallback else ""}'
+                f'{tgr_reason_html}'
                 f'</div>',
                 unsafe_allow_html=True,
             )
