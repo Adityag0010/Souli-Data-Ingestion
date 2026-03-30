@@ -451,27 +451,86 @@ class ConversationEngine:
 
     @timed("engine._diagnose")
     def _diagnose(self, text: str):
-        """Update energy_node based on accumulated user text."""
+        """
+        Hybrid energy node diagnosis.
+        
+        Priority order:
+        1. Embedding match via gold.xlsx  (most accurate — needs gold file)
+        2. Keyword heuristic              (always available — fast fallback)
+        
+        If both methods agree → high_confidence
+        If only embedding hits → embedding_match
+        If gold missing or embedding below threshold → keyword_fallback
+        """
         s = self.state
+
+        # Always import both — keyword is our safety net
         from souli_pipeline.energy.normalize import infer_node
         from souli_pipeline.retrieval.match import diagnose as retrieval_diagnose
 
+        # ── Step 1: Keyword result (fast, always works) ────────────────────
         try:
-            if self.gold_df is not None and not self.gold_df.empty:
+            keyword_node = infer_node(text, "")
+            if not keyword_node or keyword_node not in self.nodes_allowed:
+                keyword_node = "blocked_energy"
+            logger.debug("Keyword diagnosis → %s", keyword_node)
+        except Exception as exc:
+            logger.warning("Keyword diagnosis failed: %s — defaulting to blocked_energy", exc)
+            keyword_node = "blocked_energy"
+
+        # ── Step 2: Embedding match via gold.xlsx (smarter, needs gold) ────
+        embedding_node = None
+        embedding_confidence = None
+
+        if self.gold_df is not None and not self.gold_df.empty:
+            try:
                 result = retrieval_diagnose(
                     text,
                     self.gold_df,
                     self.nodes_allowed,
                     embedding_model=self.embedding_model,
                 )
-                s.energy_node    = result.get("energy_node") or "blocked_energy"
-                s.node_confidence= result.get("confidence", "keyword_fallback")
+                embedding_node = result.get("energy_node") or None
+                embedding_confidence = result.get("confidence", "keyword_fallback")
+                logger.debug(
+                    "Embedding diagnosis → %s (confidence=%s, similarity=%s)",
+                    embedding_node,
+                    embedding_confidence,
+                    result.get("similarity", "n/a"),
+                )
+            except Exception as exc:
+                logger.warning("Embedding diagnosis failed: %s — will use keyword result", exc)
+        else:
+            logger.debug("No gold_df loaded — skipping embedding diagnosis")
+
+        # ── Step 3: Hybrid decision ────────────────────────────────────────
+        if embedding_node and embedding_confidence == "embedding_match":
+            if embedding_node == keyword_node:
+                # Both agree — most reliable signal
+                s.energy_node     = embedding_node
+                s.node_confidence = "high_confidence"
+                logger.info(
+                    "Diagnosis: %s [high_confidence — both methods agree]", s.energy_node
+                )
             else:
-                s.energy_node    = infer_node(text, "")
-                s.node_confidence= "keyword_fallback"
-        except Exception as exc:
-            logger.warning("Diagnosis error: %s", exc)
-            s.energy_node = s.energy_node or "blocked_energy"
+                # Disagree — trust embedding (it reads meaning, not just keywords)
+                s.energy_node     = embedding_node
+                s.node_confidence = "embedding_match"
+                logger.info(
+                    "Diagnosis: %s [embedding_match] (keyword said: %s)",
+                    s.energy_node, keyword_node,
+                )
+        else:
+            # No gold or embedding didn't cross similarity threshold
+            s.energy_node     = keyword_node
+            s.node_confidence = "keyword_fallback"
+            logger.info(
+                "Diagnosis: %s [keyword_fallback] (gold_df present=%s)",
+                s.energy_node,
+                self.gold_df is not None and not self.gold_df.empty,
+            )
+
+
 
     @timed("engine._rag_retrieve")
     def _rag_retrieve(self, query: str, energy_node: Optional[str]) -> list:
