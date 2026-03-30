@@ -10,6 +10,8 @@ Fixes applied vs original:
   3. engine._debug_events / engine.latest_debug stubs added (were missing from engine.py)
   4. _count_turns_in_phase dead-code bug noted in debug output
 """
+from IPython.core import display_functions
+from IPython.core import display_functions
 from __future__ import annotations
 
 # ── PATH FIX — must be FIRST, before any souli_pipeline imports ──────────────
@@ -338,19 +340,20 @@ def node_badge(node: Optional[str]) -> str:
             f'color:{border};border-left:3px solid {border};">{label}</span>')
 
 def conf_badge(conf: str) -> str:
-    """Render a coloured confidence badge. Handles all new confidence levels."""
+    """Coloured confidence badge — light background so text is always readable."""
     _MAP = {
-        "high_confidence":   ("#dcfce7", "#16a34a", "✅ High Confidence"),
-        "tagger_confirmed":  ("#d1fae5", "#059669", "🤖 Tagger Confirmed"),
-        "tagger_only":       ("#ecfdf5", "#10b981", "🤖 Tagger Only"),
-        "embedding_match":   ("#eff6ff", "#2563eb", "🔢 Embedding Match"),
-        "keyword_fallback":  ("#fef2f2", "#dc2626", "⚠️ Keyword Fallback"),
-        "unknown":           ("#f8fafc", "#64748b", "❓ Unknown"),
+        "high_confidence":   ("#dcfce7", "#15803d", "✅ High Confidence"),
+        "tagger_confirmed":  ("#d1fae5", "#065f46", "🤖 Tagger Confirmed"),
+        "tagger_only":       ("#ecfdf5", "#047857", "🤖 Tagger Only"),
+        "embedding_match":   ("#dbeafe", "#1d4ed8", "🔢 Embedding Match"),
+        "keyword_fallback":  ("#fee2e2", "#b91c1c", "⚠️ Keyword Fallback"),
+        "unknown":           ("#f1f5f9", "#475569", "❓ Unknown"),
     }
-    bg, fg, label = _MAP.get(conf, ("#f8fafc", "#64748b", conf or "—"))
+    bg, fg, label = _MAP.get(conf, ("#f1f5f9", "#475569", conf or "—"))
     return (
         f'<span class="badge" style="background:{bg};color:{fg};'
-        f'border:1px solid {fg}44;font-weight:700;">{label}</span>'
+        f'border:1px solid {fg}55;font-weight:700;padding:3px 10px;border-radius:12px;">'
+        f'{label}</span>'
     )
 
 
@@ -598,15 +601,15 @@ def render_turn_debug(ev: Dict[str, Any]):
     detail = diag.get("detail", {})
     is_fallback = diag.get("is_fallback", False)
  
-    # Fallback warning banner — shows prominently at the top of diagnosis
+    # ── Fallback warning banner ────────────────────────────────────────────
     if is_fallback:
         st.markdown(
-            """<div style="background:#3a1a1a;border:2px solid #ef4444;border-radius:8px;
+            """<div style="background:#fef2f2;border:2px solid #ef4444;border-radius:8px;
             padding:10px 14px;margin:6px 0;">
-            <span style="color:#ef4444;font-weight:700;font-size:0.9rem;">
+            <span style="color:#b91c1c;font-weight:700;font-size:0.88rem;">
             ⚠️ KEYWORD FALLBACK ACTIVE
             </span><br>
-            <span style="color:#fca5a5;font-size:0.8rem;">
+            <span style="color:#7f1d1d;font-size:0.8rem;">
             Neither gold embedding nor Qwen tagger produced a confident result.
             The energy node was guessed from keyword matching only.
             Response quality may be poor.
@@ -615,78 +618,168 @@ def render_turn_debug(ev: Dict[str, Any]):
         )
  
     with st.expander("🧠 Diagnosis — full breakdown", expanded=True):
-        # Final result row
-        col_node, col_conf = st.columns(2)
+ 
+        # ── Final result row ───────────────────────────────────────────────
+        col_node, col_secondary, col_conf = st.columns(3)
+ 
         with col_node:
-            st.markdown("**Final Node**")
+            st.markdown("**Primary Node**")
             st.markdown(node_badge(diag.get("energy_node")), unsafe_allow_html=True)
+ 
+        with col_secondary:
+            st.markdown("**Also Possible**")
+            sec = diag.get("detail", {}).get("final", {}).get("secondary_node") or \
+                  ev.get("state_after", {}).get("secondary_node")
+            if sec:
+                _NODE_COLORS = {
+                    "blocked_energy": "#e74c3c", "depleted_energy": "#e67e22",
+                    "scattered_energy": "#d4a017", "outofcontrol_energy": "#9b59b6",
+                    "normal_energy": "#27ae60",
+                }
+                c = _NODE_COLORS.get(sec, "#64748b")
+                label = sec.replace("_energy","").replace("_"," ").title()
+                st.markdown(
+                    f'<span style="background:#f8fafc;color:{c};border:1px solid {c}88;'
+                    f'padding:3px 10px;border-radius:12px;font-size:0.75rem;font-weight:600;">'
+                    f'~ {label}</span>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown('<span style="color:#94a3b8;font-size:0.78rem;">—</span>', unsafe_allow_html=True)
+ 
         with col_conf:
             st.markdown("**Confidence**")
             st.markdown(conf_badge(diag.get("confidence", "unknown")), unsafe_allow_html=True)
  
-        st.markdown("---")
-        st.markdown("**Method breakdown** — how each signal voted:")
+        # ── Node reasoning (only shown at summary phase) ───────────────────
+        reasoning = ev.get("state_after", {}).get("node_reasoning") or \
+                    diag.get("detail", {}).get("node_reasoning")
+        if reasoning:
+            st.markdown(
+                f'<div style="background:#f0fdf4;border-left:3px solid #16a34a;'
+                f'border-radius:6px;padding:8px 12px;margin:6px 0;">'
+                f'<span style="color:#166534;font-size:0.75rem;font-weight:600;">WHY THIS NODE</span><br>'
+                f'<span style="color:#14532d;font-size:0.85rem;">{reasoning}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
  
-        # Three columns: keyword | embedding | tagger
+        # ── Rolling context info ───────────────────────────────────────────
+        n_msgs = detail.get("rolling_context_messages", 0)
+        if n_msgs:
+            st.caption(f"Diagnosis based on rolling context from {n_msgs} problem message(s)")
+ 
+        st.markdown("---")
+        st.markdown(
+            '<span style="color:#374151;font-size:0.8rem;font-weight:600;">'
+            'Method breakdown — how each signal voted:</span>',
+            unsafe_allow_html=True,
+        )
+ 
+        # ── Three method cards — LIGHT background so text is readable ─────
         c1, c2, c3 = st.columns(3)
  
-        # Keyword
+        # Keyword card
         kw = detail.get("keyword", {})
         with c1:
-            st.markdown("**1️⃣ Keyword**")
             st.markdown(
-                f'<div style="background:#1e293b;border-radius:6px;padding:8px;font-size:0.8rem;">'
-                f'<div style="color:#94a3b8;">Always runs</div>'
-                f'<div style="color:#e2e8f0;font-weight:600;margin-top:4px;">{kw.get("node","—")}</div>'
-                f'</div>',
+                f'<div style="background:#f8fafc;border:1px solid #e2e8f0;'
+                f'border-radius:8px;padding:10px 12px;">'
+                f'<div style="color:#64748b;font-size:0.72rem;font-weight:600;'
+                f'text-transform:uppercase;letter-spacing:0.5px;">1️⃣ Keyword</div>'
+                f'<div style="color:#94a3b8;font-size:0.72rem;margin-top:2px;">Always runs</div>'
+                f'<div style="color:#1e293b;font-weight:700;font-size:0.85rem;margin-top:6px;">'
+                f'{kw.get("node", "—").replace("_energy","").replace("_"," ").title()}'
+                f'</div></div>',
                 unsafe_allow_html=True,
             )
  
-        # Embedding
+        # Embedding card
         emb = detail.get("embedding", {})
+        emb_available = emb.get("available", False)
+        emb_hit = emb.get("confidence") == "embedding_match"
+        emb_sim = emb.get("similarity")
+        emb_node = emb.get("node", "—")
+        if not emb_available:
+            emb_status_color, emb_status = "#94a3b8", "No gold.xlsx loaded"
+        elif emb_hit:
+            emb_status_color, emb_status = "#16a34a", f"Hit · sim={emb_sim:.3f}" if emb_sim else "Hit"
+        else:
+            emb_status_color, emb_status = "#d97706", f"Below threshold · {emb_sim:.3f}" if emb_sim else "Below threshold"
+ 
         with c2:
-            st.markdown("**2️⃣ Gold Embedding**")
-            emb_available = emb.get("available", False)
-            emb_hit = emb.get("confidence") == "embedding_match"
-            emb_node = emb.get("node", "—")
-            emb_sim = emb.get("similarity")
-            if not emb_available:
-                status_color, status_text = "#6b7280", "No gold.xlsx loaded"
-            elif emb_hit:
-                status_color, status_text = "#16a34a", f"Hit (sim={emb_sim:.3f})" if emb_sim else "Hit"
-            else:
-                status_color, status_text = "#d97706", f"Below threshold (sim={emb_sim:.3f})" if emb_sim else "Below threshold"
             st.markdown(
-                f'<div style="background:#1e293b;border-radius:6px;padding:8px;font-size:0.8rem;">'
-                f'<div style="color:{status_color};">{status_text}</div>'
-                f'<div style="color:#e2e8f0;font-weight:600;margin-top:4px;">{emb_node if emb_hit else "—"}</div>'
-                f'</div>',
+                f'<div style="background:#f8fafc;border:1px solid #e2e8f0;'
+                f'border-radius:8px;padding:10px 12px;">'
+                f'<div style="color:#64748b;font-size:0.72rem;font-weight:600;'
+                f'text-transform:uppercase;letter-spacing:0.5px;">2️⃣ Gold Embedding</div>'
+                f'<div style="color:{emb_status_color};font-size:0.72rem;margin-top:2px;">{emb_status}</div>'
+                f'<div style="color:#1e293b;font-weight:700;font-size:0.85rem;margin-top:6px;">'
+                f'{"—" if not emb_hit else emb_node.replace("_energy","").replace("_"," ").title()}'
+                f'</div></div>',
                 unsafe_allow_html=True,
             )
  
-        # Tagger
+        # Tagger card
         tgr = detail.get("tagger", {})
+        tgr_available = tgr.get("available", False)
+        tgr_node = tgr.get("node", "—")
+        tgr_fallback = tgr.get("used_fallback", False)
+        tgr_reason = tgr.get("reason", "")
+        if not tgr_available:
+            tgr_status_color, tgr_status = "#94a3b8", "Ollama offline"
+        elif tgr_fallback:
+            tgr_status_color, tgr_status = "#d97706", "Tagger fell back to keyword"
+        else:
+            tgr_status_color, tgr_status = "#16a34a", "Qwen used ✓"
+ 
         with c3:
-            st.markdown("**3️⃣ Qwen Tagger**")
-            tgr_available = tgr.get("available", False)
-            tgr_node = tgr.get("node", "—")
-            tgr_fallback = tgr.get("used_fallback", False)
-            tgr_reason = tgr.get("reason", "")
-            if not tgr_available:
-                t_color, t_status = "#6b7280", "Ollama offline"
-            elif tgr_fallback:
-                t_color, t_status = "#d97706", "Tagger fell back to keyword"
-            else:
-                t_color, t_status = "#16a34a", "Qwen used ✓"
             st.markdown(
-                f'<div style="background:#1e293b;border-radius:6px;padding:8px;font-size:0.8rem;">'
-                f'<div style="color:{t_color};">{t_status}</div>'
-                f'<div style="color:#e2e8f0;font-weight:600;margin-top:4px;">{tgr_node}</div>'
-                f'{"<div style=color:#64748b;font-size:0.72rem;margin-top:2px;>" + tgr_reason[:60] + "</div>" if tgr_reason else ""}'
+                f'<div style="background:#f8fafc;border:1px solid #e2e8f0;'
+                f'border-radius:8px;padding:10px 12px;">'
+                f'<div style="color:#64748b;font-size:0.72rem;font-weight:600;'
+                f'text-transform:uppercase;letter-spacing:0.5px;">3️⃣ Qwen Tagger</div>'
+                f'<div style="color:{tgr_status_color};font-size:0.72rem;margin-top:2px;">{tgr_status}</div>'
+                f'<div style="color:#1e293b;font-weight:700;font-size:0.85rem;margin-top:6px;">'
+                f'{tgr_node.replace("_energy","").replace("_"," ").title() if tgr_available else "—"}'
+                f'</div>'
+                f'{"<div style=\\"color:#64748b;font-size:0.7rem;margin-top:2px;\\">" + tgr_reason[:55] + "…</div>" if tgr_reason and not tgr_fallback else ""}'
                 f'</div>',
                 unsafe_allow_html=True,
             )
  
+        # ── Score bar chart ────────────────────────────────────────────────
+        scores = detail.get("scores", {})
+        if scores:
+            st.markdown(
+                '<div style="margin-top:12px;">'
+                '<span style="color:#374151;font-size:0.75rem;font-weight:600;">Node scores (higher = stronger signal)</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            max_score = max(scores.values()) if scores else 1
+            _NODE_COLORS_SCORE = {
+                "blocked_energy": "#ef4444", "depleted_energy": "#f97316",
+                "scattered_energy": "#eab308", "outofcontrol_energy": "#a855f7",
+                "normal_energy": "#22c55e",
+            }
+            for node_name, score in sorted(scores.items(), key=lambda x: -x[1]):
+                pct = int((score / max_score) * 100)
+                color = _NODE_COLORS_SCORE.get(node_name, "#94a3b8")
+                label = node_name.replace("_energy","").replace("_"," ").title()
+                is_primary = (node_name == diag.get("energy_node"))
+                border = f"border:2px solid {color};" if is_primary else ""
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">'
+                    f'<div style="width:110px;color:#374151;font-size:0.72rem;'
+                    f'font-weight:{"700" if is_primary else "400"};">{label}</div>'
+                    f'<div style="flex:1;background:#f1f5f9;border-radius:4px;height:14px;{border}">'
+                    f'<div style="width:{pct}%;background:{color};height:100%;border-radius:4px;"></div>'
+                    f'</div>'
+                    f'<div style="color:{color};font-size:0.7rem;font-weight:700;width:28px;">{score:.1f}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
     # ── 5. 🗄️ ENHANCED RAG Chunks ─────────────────────────────────────────
     rag = ev.get("rag", {})
     rag_count = rag.get("results_count", 0)
@@ -1076,6 +1169,46 @@ with right_col:
         st.caption(f"Config: `{CONFIG_PATH}`  |  Gold: `{GOLD_PATH or 'none'}`")
 
     chat_tab, voice_tab = st.tabs(["💬 Text Chat", "🎤 Voice Chat"])
+
+
+    # Secondary node + reasoning tag (shown in chat UI top area)
+    diag_now = get_engine().diagnosis_summary
+    sec_node = diag_now.get("secondary_node")
+    reasoning = diag_now.get("node_reasoning")
+
+    if sec_node or reasoning:
+        _NC = {
+            "blocked_energy": "#ef4444",
+            "depleted_energy": "#f97316",
+            "scattered_energy": "#eab308",
+            "outofcontrol_energy": "#a855f7",
+            "normal_energy": "#22c55e",
+        }
+
+        parts = []
+
+        if sec_node:
+            c = _NC.get(sec_node, "#64748b")
+            lbl = sec_node.replace("_energy", "").replace("_", " ").title()
+
+            parts.append(
+                f"<span style='background:#f8fafc;color:{c};border:1px solid {c}88;"
+                f"padding:2px 8px;border-radius:10px;font-size:0.72rem;font-weight:600;'>"
+                f"Also possible: {lbl}</span>"
+            )
+
+        if reasoning:
+            parts.append(
+                f"<span style='color:#64748b;font-size:0.72rem;font-style:italic;'>"
+                f"{reasoning}</span>"
+            )
+
+        st.markdown(
+            "<div style='display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px;'>"
+            + " ".join(parts)
+            + "</div>",
+            unsafe_allow_html=True,
+        )   
 
     # ── Text Chat ─────────────────────────────────────────────────────────────
     with chat_tab:
