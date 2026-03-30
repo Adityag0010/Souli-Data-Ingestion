@@ -120,3 +120,127 @@ def _fallback_summary(energy_node: Optional[str], user_name: Optional[str]) -> s
     stub = stubs.get(energy_node, "you're going through a lot of changes right now")
     name_addr = f"{user_name}, " if user_name else ""
     return f"{name_addr}It sounds like {stub}. Did I get that right? I'm here if you want to explore some help or just keep talking."
+
+
+
+
+
+
+# ── Node display labels ────────────────────────────────────────────────────
+_NODE_LABELS = {
+    "blocked_energy":      "Blocked Energy",
+    "depleted_energy":     "Depleted Energy",
+    "scattered_energy":    "Scattered Energy",
+    "outofcontrol_energy": "Out-of-Control Energy",
+    "normal_energy":       "Normal / Growth Energy",
+}
+
+
+
+# ── Keyword-based fallback reasoning (used when Ollama is down) ───────────
+_FALLBACK_REASONS = {
+    "blocked_energy": (
+        "You seem emotionally stuck or withdrawn, struggling to move forward."
+    ),
+    "depleted_energy": (
+        "You sound drained and exhausted, running low on inner energy."
+    ),
+    "scattered_energy": (
+        "You seem overwhelmed with too much happening, unable to find focus."
+    ),
+    "outofcontrol_energy": (
+        "Your emotions or reactions seem hard to manage right now."
+    ),
+    "normal_energy": (
+        "You seem to be in a stable place, looking for further growth."
+    ),
+}
+
+"""
+    This is called ONLY at summary time (once per session) — not every turn.
+    It produces a short ≤30-word statement explaining WHY the primary node
+    was chosen, based on what the user actually said.
+"""
+
+def generate_node_reasoning(
+    problem_messages: list,
+    primary_node: str,
+    secondary_node: Optional[str] = None,
+    ollama_model: str = "llama3.1",
+    ollama_endpoint: str = "http://localhost:11434",
+    timeout_s: int = 10,
+) -> str:
+    """
+    Generate a SHORT (≤30 word) statement explaining why the primary energy
+    node was chosen for this user, based on what they actually shared.
+ 
+    Called ONCE — only when the chatbot is about to summarize.
+    NOT called every turn.
+ 
+    Returns a string like:
+      "You've been juggling too many things at once with no breathing room,
+       pulling your energy in all directions."
+ 
+    Falls back to a rule-based sentence if Ollama is unavailable.
+    """
+    primary_label = _NODE_LABELS.get(primary_node, primary_node.replace("_", " ").title())
+    secondary_label = _NODE_LABELS.get(secondary_node, "") if secondary_node else None
+ 
+    # Build the context from last 5 problem messages
+    recent = [m for m in (problem_messages or []) if len(m.split()) >= 4][-5:]
+    if not recent:
+        return _FALLBACK_REASONS.get(primary_node, "")
+ 
+    context_text = "\n".join(f"- {m}" for m in recent)
+ 
+    secondary_hint = (
+        f'\nNote: there is also a secondary pattern of "{secondary_label}" in what they shared.'
+        if secondary_label else ""
+    )
+ 
+    system = (
+        "You are an energy analyst for the Souli wellness framework. "
+        "Your job is to write ONE SHORT sentence (maximum 30 words) that explains "
+        "WHY a person's energy pattern was identified. "
+        "Write in second person ('You...'). "
+        "Be specific — reference what they actually said. "
+        "Do NOT name the energy node label. "
+        "Do NOT use therapy jargon. "
+        "Output ONLY the sentence, nothing else."
+    )
+ 
+    prompt = (
+        f"The person's energy pattern was identified as: {primary_label}.{secondary_hint}\n\n"
+        f"What they shared across the conversation:\n{context_text}\n\n"
+        f"Write the one-sentence explanation (max 30 words):"
+    )
+ 
+    try:
+        from souli_pipeline.llm.ollama import OllamaLLM
+ 
+        llm = OllamaLLM(
+            model=ollama_model,
+            endpoint=ollama_endpoint,
+            timeout_s=timeout_s,
+            temperature=0.4,   # low temp — we want precise, not creative
+            num_ctx=1024,
+        )
+ 
+        if not llm.is_available():
+            logger.debug("Ollama offline — using fallback node reasoning")
+            return _FALLBACK_REASONS.get(primary_node, "")
+ 
+        raw = llm.generate(prompt=prompt, system=system)
+        reasoning = raw.strip().strip('"').strip("'")
+ 
+        # Safety: truncate if LLM went over 30 words
+        words = reasoning.split()
+        if len(words) > 35:
+            reasoning = " ".join(words[:30]) + "."
+ 
+        return reasoning if reasoning else _FALLBACK_REASONS.get(primary_node, "")
+ 
+    except Exception as exc:
+        logger.warning("generate_node_reasoning failed: %s — using fallback", exc)
+        return _FALLBACK_REASONS.get(primary_node, "")
+ 
