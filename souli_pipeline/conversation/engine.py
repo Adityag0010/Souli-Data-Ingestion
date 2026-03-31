@@ -318,8 +318,10 @@ class ConversationEngine:
 
         rag   = self._rag_retrieve(user_text, s.energy_node)
         reply = self._llm_response(user_text, rag, stream)
-        if probe and isinstance(reply, str) and not stream:
-            return reply + "\n\n" + probe
+        if isinstance(reply, str) and not stream:
+            if len(reply.strip()) < 30 and probe:
+                return probe
+            return reply
         return reply
 
     def _trigger_summary(self, stream: bool) -> str:

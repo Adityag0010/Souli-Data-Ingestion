@@ -26,7 +26,7 @@ TONE_STYLES = [
 ]
 
 OPENING_PHRASES = [
-    "So from what you've shared, it sounds like"
+    "So from what you've shared, it sounds like",
     "I've been listening closely, and it feels like",
     "If I'm hearing you correctly, it sounds as though",
     "It seems like what's weighing on you is",
@@ -55,7 +55,9 @@ def build_dynamic_system_prompt(user_name: Optional[str] = None) -> str:
         f"Your tone today is {style}. Your goal is to synthesize the user's situation. "
         f"\n\nSTRICT CONSTRAINTS:\n"
         f"1. Start your response with a variation of: '{opening}...'\n"
-        f"2. Write ONE clear, heartfelt summary sentence of their struggle.\n"
+        f"2. Write ONE clear, heartfelt summary sentence of their struggle. "
+        f"   You MUST reference something specific they mentioned — a person, a place, a feeling they named. "
+        f"   Do NOT write a generic energy node description.\n"   # ← ADD THIS
         f"3. End your response with this exact sentiment (but you may tweak the words slightly): '{closing}'\n"
         f"4. Do NOT use robotic phrases like 'In summary' or 'To conclude'.\n"
         f"5. Total response should be under 80 words."
@@ -111,16 +113,18 @@ def generate_summary(
 def _fallback_summary(energy_node: Optional[str], user_name: Optional[str]) -> str:
     """A slightly improved fallback if the LLM is down."""
     stubs = {
-        "blocked_energy": "you're feeling a bit stuck, like things have come to a standstill",
-        "depleted_energy": "you're carrying a lot right now and feeling quite drained",
-        "scattered_energy": "everything feels a bit chaotic and overwhelming at the moment",
-        "outofcontrol_energy": "there's a lot of intense emotion building up inside — anger, restlessness, or reactions that feel bigger than you'd like them to be",
-        "normal_energy": "you're in a relatively stable place but looking for more meaning, growth, or a deeper sense of fulfilment",
+        "blocked_energy": "you've been feeling unseen — like no matter where you go or what you do, people aren't really noticing you or valuing what you bring",
+        "depleted_energy": "you've been giving a lot and running low — like there's not much left for yourself right now",
+        "scattered_energy": "everything feels like it's pulling at you at once and you can't find a moment to breathe",
+        "outofcontrol_energy": "there are some really intense emotions building up that feel hard to manage right now",
+        "normal_energy": "you're in a relatively okay place but something is still off and you're trying to figure out what",
     }
-    stub = stubs.get(energy_node, "you're going through a lot of changes right now")
     name_addr = f"{user_name}, " if user_name else ""
-    return f"{name_addr}It sounds like {stub}. Did I get that right? I'm here if you want to explore some help or just keep talking."
-
+    return (
+        f"{name_addr}{stubs.get(energy_node, 'you are carrying something heavy right now')}. "
+        f"Does that feel close to what you've been experiencing? "
+        f"We can look at some ways to ease this together, or keep talking if there's more."
+    )
 
 
 
