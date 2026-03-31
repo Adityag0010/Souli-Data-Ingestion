@@ -18,28 +18,29 @@ from typing import Dict, List, Optional
 
 ENERGY_PROBES: Dict[str, List[str]] = {
     "blocked_energy": [
-        "Are you finding it hard to connect with the world around you right now?",
-        "Have you been withdrawing from people or things you used to enjoy?",
-        "Does it feel like you're just going through the motions, feeling numb inside?",
+        "What does a normal day look like for you right now?",
+        "Is there something you used to do that you've kind of stopped doing lately?",
+        "When did things start feeling this way — was it gradual or did something happen?",
     ],
     "depleted_energy": [
-        "Do you feel like you're running on empty, even when you haven't done much?",
-        "Are you finding it hard to complete things you start, or feeling like nobody really values you?",
-        "Does it feel like life is taking from you more than it gives back?",
+        "What's been taking the most out of you lately?",
+        "When did you last feel like you had enough energy to just... be yourself?",
+        "Is there something you feel like you're always giving but rarely getting back?",
     ],
     "scattered_energy": [
-        "Does it feel like you have too much on your plate and can't find your footing?",
-        "Are you feeling overwhelmed, stressed, or anxious even though you're trying hard?",
-        "Is your mind jumping between too many things, making it hard to feel satisfied with anything?",
+        "What's been the loudest thing in your head lately — the one thing that won't quiet down?",
+        "Does it feel like everything needs your attention at once, or is there one thing pulling you most?",
+        "When you picture a calmer version of your day, what does that look like?",
     ],
     "outofcontrol_energy": [
-        "Are you noticing strong emotions — like anger, frustration, or restlessness — that feel hard to manage?",
-        "Does it feel like your mind or emotions are constantly running on overdrive?",
-        "Are you reacting more intensely than you'd like in certain situations?",
+        "Is there a particular situation lately where you felt like things just got away from you?",
+        "What does it feel like just before things get intense — is there a pattern you've noticed?",
+        "When things feel out of hand, what's your usual first instinct?",
     ],
     "normal_energy": [
-        "It sounds like you're in a fairly stable place — are you looking to grow further or find more purpose?",
-        "What does inner growth or deeper fulfillment mean to you right now?",
+        "What's been on your mind lately — is there something you feel like you're ready to work on?",
+        "Is there an area of your life that feels like it's calling for more attention right now?",
+        "What would things look like if they felt a little more fulfilling than they do now?",
     ],
 }
 
@@ -86,6 +87,7 @@ OPENING_QUESTION = (
 # Follow-up when user gives short answers
 SHORT_ANSWER_FOLLOW_UPS = [
     "I hear you. Can you tell me a little more about what that feels like for you?",
+    "That makes sense. Has this been going on for a while, or did something shift recently?",
     "Thank you for sharing that. When did you first start feeling this way?",
     "I'm listening. Is there a specific situation or feeling that's been coming up most often?",
 ]
@@ -122,7 +124,7 @@ _RICH_EMOTION_WORDS = {
     "toot gaya", "toot gayi", "ro raha", "ro rahi", "nahi rehna",
 }
 
-_RICH_MIN_WORDS = 18   # message must have at least this many words to be "rich"
+_RICH_MIN_WORDS = 12   # message must have at least this many words to be "rich"
 _RICH_MIN_EMOTIONAL_HITS = 1  # at least one emotional keyword
 
 

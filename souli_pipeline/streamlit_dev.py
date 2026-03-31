@@ -271,8 +271,7 @@ def get_stt():
 @st.cache_resource(show_spinner="Loading Edge TTS...")
 def get_tts():
     from souli_pipeline.voice.tts import EdgeTTS
-    return EdgeTTS(voice="en-US-GuyNeural", rate="-10%", pitch="-15Hz")
-
+    return EdgeTTS(voice="en-US-ChristopherNeural", rate="-5%", pitch="-10Hz")
 
 def _reset_all():
     """Wipe engine + conversation — called when KB toggle switches."""

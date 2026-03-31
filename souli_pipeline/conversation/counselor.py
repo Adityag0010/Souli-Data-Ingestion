@@ -40,7 +40,9 @@ Design Litmus Test:
 - If your response feels like "an app feature," it's wrong. It must feel like a "presence".
 - Reassure them that "You don't have to stay stuck," but do so with hope, not pressure.
 
-When teaching content is provided, use it naturally — like a friend sharing something useful.
+When reference content is provided, do two things: 
+    1. mirror the tone and phrasing style you see in that content — that is how Souli speaks, 
+    2. use any relevant knowledge from it to make your response specific to this person's situation.Do not copy it word for word. Let it shape how you respond.
 """
 
 
@@ -56,10 +58,33 @@ def _build_counselor_system(
     if user_name:
         context_additions.append(f"The person's name is {user_name}.")
     
-    if phase == "venting":
-        context_additions.append("PHASE: Venting. Be a quiet presence. 1-2 sentences max.")
+    if phase == "intake":
+        context_additions.append(
+            "PHASE: Intake. The person just started sharing. "
+            "Your ONLY job is to make them feel heard and invite them to say more. "
+            "DO NOT ask philosophical or identity questions. "
+            "DO NOT suggest practices or reflection exercises. "
+            "Acknowledge ONE specific thing they said, then ask ONE simple follow-up about their daily experience. "
+            "Max 2 sentences."
+        )
+    elif phase == "venting" or phase == "sharing":
+        context_additions.append(
+            "PHASE: Venting. Be a quiet presence."
+            "Acknowledge what they said say some filler words which makes them feel heard and let them share what they want to share."
+            "Max 2 sentences."
+        )
     elif phase == "deepening":
-        context_additions.append("PHASE: Deepening. Invite a small reflection based on the KB.")
+        context_additions.append(
+            "PHASE: Deepening. You already know the person's main struggle. "
+            "Your job now is to understand their daily experience better. "
+            "First acknowledge ONE specific thing they just said — something they actually mentioned. "
+            "Then ask ONE simple, grounded question about their day-to-day life. "
+            "Examples of good questions: 'What does your day feel like when this comes up?' or "
+            "'Has this been going on for a while, or did something shift recently?' "
+            "DO NOT ask philosophical or identity questions. "
+            "DO NOT use therapy language like 'sense of control' or 'confidence'. "
+            "Max 2 sentences total."
+        )
     
     if asked_topics:
         context_additions.append(f"Already discussed: {', '.join(asked_topics)}.")
@@ -87,7 +112,7 @@ Ground everything in what the person shared — make it personal, not generic.
 def _build_rag_context(chunks: List[Dict]) -> str:
     if not chunks:
         return ""
-    lines = ["[Relevant teaching from Souli counselor videos:]"]
+    lines = ["[Style & Knowledge Reference — how Souli's counselor handles similar moments:]"]
     for i, c in enumerate(chunks[:3], 1):
         text = (c.get("text") or "").strip()
         if text:

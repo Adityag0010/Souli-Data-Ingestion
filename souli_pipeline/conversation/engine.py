@@ -26,12 +26,13 @@ logger = logging.getLogger(__name__)
 
 PHASE_GREETING     = "greeting"
 PHASE_INTAKE       = "intake"
-PHASE_SHARING      = "sharing"
 PHASE_DEEPENING    = "deepening"
+PHASE_VENTING      = "venting"
 PHASE_SUMMARY      = "summary"
 PHASE_INTENT_CHECK = "intent_check"
+PHASE_SHARING      = "sharing"
 PHASE_SOLUTION     = "solution"
-PHASE_VENTING      = "venting"
+
 
 
 @dataclass
@@ -41,16 +42,16 @@ class ConversationState:
     user_name: Optional[str] = None
     messages: List[Dict[str, str]] = field(default_factory=list)
     energy_node: Optional[str] = None          # primary node (most likely)
-    secondary_node: Optional[str] = None       # NEW: second most likely node
+    secondary_node: Optional[str] = None       # second most likely node
     node_confidence: str = "unknown"
-    node_reasoning: Optional[str] = None       # NEW: ≤30 word LLM reasoning (set at summary time)
+    node_reasoning: Optional[str] = None       # ≤30 word LLM reasoning (set at summary time)
     used_probe_indices: Dict[str, List[int]] = field(default_factory=dict)
     used_sharing_probe_indices: Dict[str, List[int]] = field(default_factory=dict)
     short_answer_count: int = 0
     intent: Optional[str] = None
     framework_loaded: bool = False
     user_text_buffer: str = ""
-    # NEW: stores each meaningful user message separately so we can use last 3-5
+    # stores each meaningful user message separately so we can use last 3-5
     problem_messages: List[str] = field(default_factory=list)
     summary_attempted: bool = False
     summary_confirmed: bool = False
@@ -263,9 +264,10 @@ class ConversationEngine:
                 return reply + "\n\n" + follow_up
             return reply
 
-        s.phase = PHASE_DEEPENING
         rag = self._rag_retrieve(user_text, s.energy_node)
-        return self._llm_response(user_text, rag, stream)
+        response = self._llm_response(user_text, rag, stream)
+        s.phase = PHASE_DEEPENING
+        return response
 
     def _handle_sharing(self, user_text: str, stream: bool):
         s = self.state
@@ -337,7 +339,7 @@ class ConversationEngine:
             temperature=self.temperature,
         )
  
-        # NEW: generate the short ≤30-word reasoning for WHY this node was chosen
+        # generate the short ≤30-word reasoning for WHY this node was chosen
         # This is a separate small LLM call — runs async-style after the summary.
         # We store it on state so the debug panel and chat tag can show it.
         # We don't append it to the user-visible summary — it's for internal use
@@ -782,7 +784,7 @@ class ConversationEngine:
 
 
 # ---------------------------------------------------------------------------
-# Module-level helpers (unchanged)
+# Module-level helpers
 # ---------------------------------------------------------------------------
 
 _STOP_WORDS = {
