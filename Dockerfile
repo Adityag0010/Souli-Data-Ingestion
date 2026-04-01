@@ -12,9 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     mpg123 \
- && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
- && ln -sf /usr/bin/python3.11 /usr/bin/python \
- && rm -rf /var/lib/apt/lists/*
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Install Python deps first (layer cache)
 COPY requirements.txt /app/requirements.txt
@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . /app
 
 # Install the souli package (registers the `souli` CLI entrypoint)
-RUN pip install -e .
+RUN pip install .
 
 # Create data and outputs directories
 RUN mkdir -p /app/data /app/outputs

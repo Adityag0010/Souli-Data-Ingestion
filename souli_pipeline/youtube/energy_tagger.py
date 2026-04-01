@@ -25,26 +25,34 @@ NODES = [
 # Short descriptions fed to Qwen so it understands each node
 NODE_DESCRIPTIONS = {
     "blocked_energy": (
-        "Withdrawal, depression, procrastination, self-harm risk, emotional numbness, "
-        "stuck in toxic cycles, life disconnection."
+        "STAGNATION/FROZEN: The energy is present but stuck or suppressed. "
+        "Keywords: Numbness, 'stuck in a loop,' paralysis, withdrawal, "
+        "procrastination, or feeling 'dead inside.' It is a lack of movement."
     ),
     "depleted_energy": (
-        "Internally tired, lazy, low energy, fear of failure, feeling victimized, "
-        "nobody values me, not completing things."
+        "EMPTY/EXHAUSTED: The 'battery' is at 0%. "
+        "Keywords: Drained, running on empty, 'I have nothing left,' low capacity, "
+        "feeling like a victim, or giving up because of physical/mental fatigue. "
+        "It is a lack of resource."
     ),
     "scattered_energy": (
-        "Overwhelmed by external factors, stressed, burnout, overworked, anxious, "
-        "energy all over the place, no sense of accomplishment."
+        "DIFFUSE/UNFOCUSED: Energy is high but lacks a center. "
+        "Keywords: Overwhelmed by external tasks, 'busy but doing nothing,' "
+        "spinning wheels, anxiety about the to-do list, or frantic multitasking. "
+        "It is a lack of direction."
     ),
     "outofcontrol_energy": (
-        "Anger issues, physically restless, non-stop mind, emotional extremes, "
-        "judgmental, impulsive, cannot control energy on any level."
+        "VOLATILE/EXPLOSIVE: Energy is high intensity and unregulated. "
+        "Keywords: Rage, impulsivity, 'mind won't stop,' obsessive thoughts, "
+        "emotional outbursts, or physical restlessness. It is a lack of restraint."
     ),
     "normal_energy": (
-        "Comfortable in life, looking for inner/outer growth, spiritual progression, "
-        "happy, doing what they want to do."
+        "FLOW/ALIGNMENT: Energy is balanced and intentional. "
+        "Keywords: Contentment, 'ready to grow,' calm focus, purposeful action, "
+        "feeling 'in the zone,' or emotional stability. It is a state of health."
     ),
 }
+
 
 _SYSTEM_PROMPT = """\
 You are an inner-energy wellness analyst working with the Souli framework.
@@ -57,6 +65,9 @@ Respond with ONLY valid JSON — no explanation outside the JSON block.
 """
 
 _USER_PROMPT = """\
+Analyze the following transcript chunk. 
+Focus on the speaker's tone and the specific 'lack' they are describing (lack of movement, lack of resource, lack of focus, or lack of restraint).
+
 Transcript chunk:
 \"\"\"
 {text}
@@ -64,8 +75,11 @@ Transcript chunk:
 
 Return JSON with exactly these keys:
 - "energy_node": one of {nodes}
-- "reason": one sentence explaining why this chunk maps to that node (max 25 words)
+- "reason": one sentence explaining why this node applies (max 25 words).
 """
+
+
+
 
 
 def _build_system() -> str:

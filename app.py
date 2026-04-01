@@ -31,6 +31,7 @@ def main():
     page = st.sidebar.radio(
         "Select Interface",
         [
+            "🥇 Gold Data Viewer",
             "🚀 Data Ingestion (Improved)",
             "🎬 Data Ingestion",
             "💬 Chatbot Testing",
@@ -39,7 +40,10 @@ def main():
         help="Choose between data ingestion or chatbot testing"
     )
 
-    if page == "🚀 Data Ingestion (Improved)":
+    if page == "🥇 Gold Data Viewer":
+        from pages import gold_viewer
+        gold_viewer.show()
+    elif page == "🚀 Data Ingestion (Improved)":
         from pages import data_ingestion_improved
         data_ingestion_improved.show()
     elif page == "🎬 Data Ingestion":

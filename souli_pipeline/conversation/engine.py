@@ -26,12 +26,13 @@ logger = logging.getLogger(__name__)
 
 PHASE_GREETING     = "greeting"
 PHASE_INTAKE       = "intake"
-PHASE_SHARING      = "sharing"
 PHASE_DEEPENING    = "deepening"
+PHASE_VENTING      = "venting"
 PHASE_SUMMARY      = "summary"
 PHASE_INTENT_CHECK = "intent_check"
+PHASE_SHARING      = "sharing"
 PHASE_SOLUTION     = "solution"
-PHASE_VENTING      = "venting"
+
 
 
 @dataclass
@@ -40,17 +41,22 @@ class ConversationState:
     turn_count: int = 0
     user_name: Optional[str] = None
     messages: List[Dict[str, str]] = field(default_factory=list)
-    energy_node: Optional[str] = None
+    energy_node: Optional[str] = None          # primary node (most likely)
+    secondary_node: Optional[str] = None       # second most likely node
     node_confidence: str = "unknown"
+    node_reasoning: Optional[str] = None       # ≤30 word LLM reasoning (set at summary time)
     used_probe_indices: Dict[str, List[int]] = field(default_factory=dict)
     used_sharing_probe_indices: Dict[str, List[int]] = field(default_factory=dict)
     short_answer_count: int = 0
     intent: Optional[str] = None
     framework_loaded: bool = False
     user_text_buffer: str = ""
+    # stores each meaningful user message separately so we can use last 3-5
+    problem_messages: List[str] = field(default_factory=list)
     summary_attempted: bool = False
     summary_confirmed: bool = False
     rich_opening: bool = False
+    _last_diagnosis_detail: Dict = field(default_factory=dict)   # for debug panel
 
 
 class ConversationEngine:
@@ -169,6 +175,8 @@ class ConversationEngine:
         s.turn_count += 1
         user_text = (user_text or "").strip()
         s.user_text_buffer += " " + user_text
+        # Tracking individual problem messages for rolling diagnosis window
+        self._update_problem_messages(user_text)
         s.messages.append({"role": "user", "content": user_text})
 
         if s.phase == PHASE_GREETING:
@@ -256,9 +264,10 @@ class ConversationEngine:
                 return reply + "\n\n" + follow_up
             return reply
 
-        s.phase = PHASE_DEEPENING
         rag = self._rag_retrieve(user_text, s.energy_node)
-        return self._llm_response(user_text, rag, stream)
+        response = self._llm_response(user_text, rag, stream)
+        s.phase = PHASE_DEEPENING
+        return response
 
     def _handle_sharing(self, user_text: str, stream: bool):
         s = self.state
@@ -309,17 +318,21 @@ class ConversationEngine:
 
         rag   = self._rag_retrieve(user_text, s.energy_node)
         reply = self._llm_response(user_text, rag, stream)
-        if probe and isinstance(reply, str) and not stream:
-            return reply + "\n\n" + probe
+        if isinstance(reply, str) and not stream:
+            if len(reply.strip()) < 30 and probe:
+                return probe
+            return reply
         return reply
 
     def _trigger_summary(self, stream: bool) -> str:
         s = self.state
         s.summary_attempted = True
         s.phase = PHASE_SUMMARY
-
-        from .summarizer import generate_summary
-        return generate_summary(
+ 
+        from .summarizer import generate_summary, generate_node_reasoning
+ 
+        # Generate the main empathetic summary (existing behaviour)
+        summary_text = generate_summary(
             user_text_buffer=s.user_text_buffer.strip(),
             energy_node=s.energy_node,
             user_name=s.user_name,
@@ -327,6 +340,27 @@ class ConversationEngine:
             ollama_endpoint=self.ollama_endpoint,
             temperature=self.temperature,
         )
+ 
+        # generate the short ≤30-word reasoning for WHY this node was chosen
+        # This is a separate small LLM call — runs async-style after the summary.
+        # We store it on state so the debug panel and chat tag can show it.
+        # We don't append it to the user-visible summary — it's for internal use
+        # (debug panel) and the small secondary tag in the chat UI.
+        try:
+            reasoning = generate_node_reasoning(
+                problem_messages=s.problem_messages,
+                primary_node=s.energy_node,
+                secondary_node=s.secondary_node,
+                ollama_model=self.chat_model,
+                ollama_endpoint=self.ollama_endpoint,
+            )
+            s.node_reasoning = reasoning
+            logger.info("Node reasoning generated: '%s'", reasoning[:60])
+        except Exception as exc:
+            logger.warning("Node reasoning generation failed: %s", exc)
+            s.node_reasoning = None
+ 
+        return summary_text
 
     def _handle_summary_response(self, user_text: str, stream: bool):
         s = self.state
@@ -451,27 +485,227 @@ class ConversationEngine:
 
     @timed("engine._diagnose")
     def _diagnose(self, text: str):
-        """Update energy_node based on accumulated user text."""
+        """
+        Rolling-window diagnosis — considers the last 3-5 meaningful user
+        messages as a single block, not just the current message.
+ 
+        Why this matters:
+          Turn 1: "I feel confused, too much happening at once" → scattered
+          Turn 6: "maybe i got clarity somehow"                → vague, keyword→blocked
+          
+          Old: turn 6 resets node to blocked_energy (wrong)
+          New: builds a summary of turns 1-6's substance → still reads scattered
+ 
+        Also produces a secondary_node (second most likely) for display.
+ 
+        Steps:
+          1. Build rolling context from last 3-5 problem_messages
+          2. Run keyword on that context
+          3. Run gold embedding on that context (if available)
+          4. Run Qwen tagger on that context (if Ollama available)
+          5. Collect all scores, pick top-2 nodes
+        """
         s = self.state
+ 
         from souli_pipeline.energy.normalize import infer_node
         from souli_pipeline.retrieval.match import diagnose as retrieval_diagnose
-
+ 
+        # ── Build rolling context ──────────────────────────────────────────
+        # Filter problem_messages to only substantive ones (>6 words)
+        # Take the last 5 at most — recent context matters more
+        MIN_WORDS = 6
+        meaningful = [
+            m for m in s.problem_messages
+            if len(m.split()) >= MIN_WORDS
+        ]
+        recent_messages = meaningful[-5:] if len(meaningful) >= 2 else meaningful
+ 
+        if recent_messages:
+            # Join as a mini-paragraph — this is what we diagnose
+            rolling_context = " ".join(recent_messages)
+        else:
+            # Only 1 or 0 messages so far — use the current text directly
+            rolling_context = text.strip()
+ 
+        logger.debug(
+            "_diagnose rolling_context from %d messages: '%s...'",
+            len(recent_messages),
+            rolling_context[:80],
+        )
+ 
+        # ── Node score accumulator ─────────────────────────────────────────
+        # We collect weighted scores per node from all methods.
+        # At the end, top-2 by score = primary + secondary node.
+        node_scores: Dict[str, float] = {n: 0.0 for n in self.nodes_allowed}
+ 
+        # ── Step 1: Keyword (weight = 1.0) ────────────────────────────────
+        keyword_node = "blocked_energy"
         try:
-            if self.gold_df is not None and not self.gold_df.empty:
+            kw = infer_node(rolling_context, "")
+            if kw and kw in self.nodes_allowed:
+                keyword_node = kw
+            node_scores[keyword_node] = node_scores.get(keyword_node, 0) + 1.0
+            logger.debug("Keyword → %s", keyword_node)
+        except Exception as exc:
+            logger.warning("Keyword diagnosis failed: %s", exc)
+ 
+        # ── Step 2: Gold embedding (weight = 2.0 — smarter than keyword) ──
+        embedding_node = None
+        embedding_confidence = None
+        embedding_similarity = None
+ 
+        if self.gold_df is not None and not self.gold_df.empty:
+            try:
                 result = retrieval_diagnose(
-                    text,
+                    rolling_context,
                     self.gold_df,
                     self.nodes_allowed,
                     embedding_model=self.embedding_model,
                 )
-                s.energy_node    = result.get("energy_node") or "blocked_energy"
-                s.node_confidence= result.get("confidence", "keyword_fallback")
-            else:
-                s.energy_node    = infer_node(text, "")
-                s.node_confidence= "keyword_fallback"
+                embedding_node = result.get("energy_node") or None
+                embedding_confidence = result.get("confidence", "keyword_fallback")
+                embedding_similarity = result.get("similarity")
+ 
+                if embedding_node and embedding_confidence == "embedding_match":
+                    node_scores[embedding_node] = node_scores.get(embedding_node, 0) + 2.0
+                    logger.debug("Embedding → %s (sim=%.3f)", embedding_node, embedding_similarity or 0)
+            except Exception as exc:
+                logger.warning("Embedding diagnosis failed: %s", exc)
+        else:
+            logger.debug("No gold_df — skipping embedding")
+ 
+        # ── Step 3: Qwen tagger (weight = 3.0 — same model as ingest) ─────
+        tagger_node = None
+        tagger_reason = None
+        tagger_used_fallback = False
+ 
+        try:
+            from souli_pipeline.youtube.energy_tagger import tag_chunk
+            from souli_pipeline.llm.ollama import OllamaLLM
+ 
+            _probe = OllamaLLM(
+                model=self.tagger_model,
+                endpoint=self.ollama_endpoint,
+                timeout_s=3,
+            )
+            if _probe.is_available():
+                tag_result = tag_chunk(
+                    rolling_context,
+                    ollama_model=self.tagger_model,
+                    ollama_endpoint=self.ollama_endpoint,
+                    timeout_s=8,
+                )
+                raw_node = tag_result.get("energy_node", "")
+                tagger_reason = tag_result.get("reason", "")
+ 
+                if raw_node and raw_node in self.nodes_allowed:
+                    tagger_node = raw_node
+                    tagger_used_fallback = (tagger_reason == "keyword_fallback")
+ 
+                    if not tagger_used_fallback:
+                        # Real Qwen result — highest weight
+                        node_scores[tagger_node] = node_scores.get(tagger_node, 0) + 3.0
+                    else:
+                        # Qwen itself fell back — treat same as keyword
+                        node_scores[tagger_node] = node_scores.get(tagger_node, 0) + 1.0
+                    logger.debug("Tagger → %s (fallback=%s)", tagger_node, tagger_used_fallback)
         except Exception as exc:
-            logger.warning("Diagnosis error: %s", exc)
-            s.energy_node = s.energy_node or "blocked_energy"
+            logger.warning("Tagger diagnosis failed: %s", exc)
+ 
+        # ── Step 4: Pick top-2 nodes by accumulated score ──────────────────
+        sorted_nodes = sorted(
+            [(n, sc) for n, sc in node_scores.items() if sc > 0],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+ 
+        if sorted_nodes:
+            final_node = sorted_nodes[0][0]
+            final_score = sorted_nodes[0][1]
+        else:
+            final_node = keyword_node
+            final_score = 1.0
+ 
+        # Secondary node: second highest score, only if meaningfully different
+        secondary = None
+        if len(sorted_nodes) >= 2:
+            second_node, second_score = sorted_nodes[1]
+            # Only show secondary if it got at least half the primary's score
+            if second_score >= final_score * 0.5 and second_node != final_node:
+                secondary = second_node
+ 
+        s.secondary_node = secondary
+ 
+        # ── Step 5: Set confidence label ───────────────────────────────────
+        tagger_real = tagger_node and not tagger_used_fallback
+        embedding_real = embedding_node and embedding_confidence == "embedding_match"
+ 
+        if tagger_real and embedding_real and tagger_node == embedding_node:
+            final_confidence = "high_confidence"
+        elif tagger_real and embedding_real:
+            final_confidence = "tagger_confirmed"
+        elif tagger_real:
+            final_confidence = "tagger_only"
+        elif embedding_real:
+            final_confidence = "embedding_match"
+        else:
+            final_confidence = "keyword_fallback"
+ 
+        s.energy_node     = final_node
+        s.node_confidence = final_confidence
+ 
+        logger.info(
+            "Diagnosis: primary=%s secondary=%s confidence=%s scores=%s",
+            final_node, secondary, final_confidence,
+            {n: round(sc, 1) for n, sc in sorted_nodes[:3]},
+        )
+ 
+        # ── Store full breakdown for debug panel ───────────────────────────
+        s._last_diagnosis_detail = {
+            "keyword":   {"node": keyword_node},
+            "embedding": {
+                "node":       embedding_node,
+                "confidence": embedding_confidence,
+                "similarity": embedding_similarity,
+                "available":  self.gold_df is not None and not self.gold_df.empty,
+            },
+            "tagger": {
+                "node":          tagger_node,
+                "reason":        tagger_reason,
+                "used_fallback": tagger_used_fallback,
+                "available":     tagger_node is not None,
+            },
+            "scores":  {n: round(sc, 1) for n, sc in node_scores.items() if sc > 0},
+            "rolling_context_messages": len(recent_messages),
+            "final": {
+                "node":           final_node,
+                "secondary_node": secondary,
+                "confidence":     final_confidence,
+            },
+        }
+ 
+    def _update_problem_messages(self, user_text: str):
+        """
+        Called at the start of every turn to maintain the rolling problem_messages list.
+        Only adds messages that look like problem statements (not short filler).
+        
+        Call this in _process() or at the top of _handle_intake / _handle_sharing.
+        """
+        text = (user_text or "").strip()
+        # Skip very short / filler messages
+        FILLER = {"yes", "no", "ok", "okay", "sure", "maybe", "hmm", "hm", "uh",
+                  "yeah", "yep", "nope", "fine", "good", "bad", "idk", "lol"}
+        words = text.lower().split()
+        if len(words) < 4:
+            return
+        if len(words) <= 6 and all(w in FILLER for w in words):
+            return
+        self.state.problem_messages.append(text)
+        # Keep at most 10 messages in memory
+        if len(self.state.problem_messages) > 10:
+            self.state.problem_messages = self.state.problem_messages[-10:]
+
+
 
     @timed("engine._rag_retrieve")
     def _rag_retrieve(self, query: str, energy_node: Optional[str]) -> list:
@@ -539,16 +773,20 @@ class ConversationEngine:
     def diagnosis_summary(self) -> Dict:
         s = self.state
         return {
-            "energy_node": s.energy_node,
-            "confidence" : s.node_confidence,
-            "intent"     : s.intent,
-            "phase"      : s.phase,
-            "turn_count" : s.turn_count,
+            "energy_node":    s.energy_node,
+            "secondary_node": s.secondary_node,     
+            "node_reasoning": s.node_reasoning,       
+            "confidence":     s.node_confidence,
+            "intent":         s.intent,
+            "phase":          s.phase,
+            "turn_count":     s.turn_count,
+            "problem_messages_count": len(s.problem_messages),  # NEW — debug
         }
 
 
+
 # ---------------------------------------------------------------------------
-# Module-level helpers (unchanged)
+# Module-level helpers
 # ---------------------------------------------------------------------------
 
 _STOP_WORDS = {

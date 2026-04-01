@@ -6,9 +6,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional
-
 import pandas as pd
-
 logger = logging.getLogger(__name__)
 
 # Column names matching energy pipeline output
