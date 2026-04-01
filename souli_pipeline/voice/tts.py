@@ -32,9 +32,10 @@ class EdgeTTS:
             en-US-JennyNeural, hi-IN-SwaraNeural (Hindi)
     """
 
-    def __init__(self, voice: str = "en-IN-NeerjaNeural", rate: str = "+0%"):
+    def __init__(self, voice: str = "en-IN-NeerjaNeural", rate: str = "+0%", pitch: str = "+0Hz"):
         self.voice = voice
         self.rate = rate
+        self.pitch = pitch
 
     async def synthesize_async(self, text: str) -> bytes:
         """Synthesize text → MP3 bytes."""
@@ -44,13 +45,22 @@ class EdgeTTS:
             tmp_path = tmp.name
 
         try:
-            communicate = edge_tts.Communicate(text, self.voice, rate=self.rate)
+            communicate = edge_tts.Communicate(text, self.voice, rate=self.rate, pitch=self.pitch)
             await communicate.save(tmp_path)
             with open(tmp_path, "rb") as f:
                 return f.read()
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+    async def stream_async(self, text: str) -> AsyncGenerator[bytes, None]:
+        """Stream audio chunks as they're generated."""
+        import edge_tts
+
+        communicate = edge_tts.Communicate(text, self.voice, rate=self.rate, pitch=self.pitch)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                yield chunk["data"]
 
     @timed("tts.edge_synthesize")
     def synthesize(self, text: str) -> bytes:

@@ -6,13 +6,14 @@ Completely separate from pipeline.py — zero shared state.
 
 Flow:
     URL → Whisper → Paragraph grouping → Topic segmentation (embeddings)
-        → LLM segment cleaning → Persona extraction → Qdrant ingest
+        → LLM segment cleaning → Persona extraction → Energy tagging → Qdrant ingest
 
 Outputs per video (in out_dir):
-    whisper_segments.xlsx    — raw Whisper output
-    paragraphs.xlsx          — grouped paragraphs
-    topic_segments.xlsx      — detected topic boundaries
-    cleaned_chunks.xlsx      — LLM-cleaned prose per topic (this goes to Qdrant)
+    whisper_segments.xlsx       — raw Whisper output
+    paragraphs.xlsx             — grouped paragraphs
+    topic_segments.xlsx         — detected topic boundaries
+    cleaned_chunks.xlsx         — LLM-cleaned prose per topic
+    cleaned_chunks_tagged.xlsx  — same + energy_node column (this goes to Qdrant)
 
 Global (updated after each video):
     data/coach_persona.txt   — evolving coach persona string
@@ -61,7 +62,7 @@ def run_improved_pipeline(
     # ------------------------------------------------------------------
     # Step 1 — Whisper transcription
     # ------------------------------------------------------------------
-    logger.info("[IMPROVED] Step 1/5 — Whisper transcription: %s", youtube_url)
+    logger.info("[IMPROVED] Step 1/6 — Whisper transcription: %s", youtube_url)
     from souli_pipeline.youtube.whisper_transcribe import transcribe_url
 
     segments = transcribe_url(
@@ -84,7 +85,7 @@ def run_improved_pipeline(
     # ------------------------------------------------------------------
     # Step 2 — Topic segmentation (paragraph grouping + embedding boundary detection)
     # ------------------------------------------------------------------
-    logger.info("[IMPROVED] Step 2/5 — Topic segmentation...")
+    logger.info("[IMPROVED] Step 2/6 — Topic segmentation...")
     from souli_pipeline.youtube.topic_segmenter import detect_topics
 
     paragraphs, topic_segments = detect_topics(
@@ -138,7 +139,7 @@ def run_improved_pipeline(
     # ------------------------------------------------------------------
     # Step 3 — LLM segment cleaning
     # ------------------------------------------------------------------
-    logger.info("[IMPROVED] Step 3/5 — LLM segment cleaning (%d segments)...", len(topic_segments))
+    logger.info("[IMPROVED] Step 3/6 — LLM segment cleaning (%d segments)...", len(topic_segments))
     from souli_pipeline.youtube.segment_cleaner import clean_all_segments
 
     cleaned_results = clean_all_segments(
@@ -165,7 +166,7 @@ def run_improved_pipeline(
     # Step 4 — Persona extraction + update
     # ------------------------------------------------------------------
     if not skip_persona:
-        logger.info("[IMPROVED] Step 4/5 — Persona extraction...")
+        logger.info("[IMPROVED] Step 4/6 — Persona extraction...")
         from souli_pipeline.youtube.persona_extractor import (
             extract_from_video,
             update_persona_file,
@@ -205,11 +206,58 @@ def run_improved_pipeline(
         logger.info("[IMPROVED] Persona extraction skipped.")
 
     # ------------------------------------------------------------------
-    # Step 5 — Ingest to souli_chunks_improved
+    # Step 5 — Energy node tagging (Qwen via Ollama)
+    # ------------------------------------------------------------------
+    if not df_cleaned.empty:
+        logger.info(
+            "[IMPROVED] Step 5/6 — Energy node tagging (%d chunks) via %s ...",
+            len(df_cleaned),
+            c.tagger_model,
+        )
+        try:
+            from souli_pipeline.youtube.energy_tagger import tag_dataframe
+
+            df_cleaned = tag_dataframe(
+                df_cleaned,
+                text_col="cleaned_text",      # improved pipeline stores text in cleaned_text column
+                ollama_model=c.tagger_model,
+                ollama_endpoint=c.ollama_endpoint,
+            )
+
+            # Save the tagged version so you can inspect it in the UI
+            tagged_path = os.path.join(out_dir, "cleaned_chunks_tagged.xlsx")
+            df_cleaned.to_excel(tagged_path, index=False)
+            outputs["cleaned_chunks_tagged"] = tagged_path
+
+            # Count how many got a real tag vs keyword fallback
+            tagged_count = df_cleaned["energy_node"].notna().sum()
+            fallback_count = (df_cleaned.get("energy_node_reason", pd.Series()) == "keyword_fallback").sum()
+            logger.info(
+                "[IMPROVED] Energy tagging done — %d tagged, %d keyword fallbacks.",
+                tagged_count,
+                fallback_count,
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "[IMPROVED] Energy tagging failed: %s — chunks will have empty energy_node. "
+                "Check that Ollama is running at %s and model %s is available.",
+                exc,
+                c.ollama_endpoint,
+                c.tagger_model,
+            )
+    else:
+        logger.info("[IMPROVED] Skipping energy tagging — df_cleaned is empty.")
+
+    # ------------------------------------------------------------------
+    # Step 6 — Ingest to souli_chunks_improved
     # ------------------------------------------------------------------
     if not skip_ingest and not df_cleaned.empty:
-        logger.info("[IMPROVED] Step 5/5 — Ingesting %d chunks to Qdrant collection '%s'...",
-                    len(df_cleaned), qdrant_collection)
+        logger.info(
+            "[IMPROVED] Step 6/6 — Ingesting %d chunks to Qdrant collection '%s'...",
+            len(df_cleaned),
+            qdrant_collection,
+        )
         from souli_pipeline.retrieval.qdrant_store_improved import ingest_improved_chunks
 
         n = ingest_improved_chunks(

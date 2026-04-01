@@ -92,7 +92,7 @@ llm:
 retrieval:
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   top_k_teaching: 5
-  qdrant_host: "qdrant"            # docker-compose service name
+  qdrant_host: "localhost"            # docker-compose service name
   qdrant_port: 6333
   qdrant_collection: "souli_chunks"
 
@@ -100,7 +100,7 @@ retrieval:
 conversation:
   chat_model: "llama3.1"
   tagger_model: "qwen2.5:1.5b"
-  ollama_endpoint: "http://ollama:11434"   # docker-compose service name
+  ollama_endpoint: "http://localhost:11434"   # docker-compose service name
   rag_top_k: 3
   max_intake_turns: 4
   temperature: 0.75
@@ -122,8 +122,8 @@ improved_pipeline:
   whisper_model: "medium"
 
   # Topic boundary sensitivity — lower = more chunks, higher = fewer larger chunks
-  # Start with 0.45 and tune after inspecting topic_segments.xlsx
-  similarity_threshold: 0.45
+  # Start with 0.4 and tune after inspecting topic_segments.xlsx
+  similarity_threshold: 0.4
 
   # Topic segment size limits
   min_topic_words: 80       # segments smaller than this get absorbed into neighbours
