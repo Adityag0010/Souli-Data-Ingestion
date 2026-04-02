@@ -89,12 +89,13 @@ def _build_counselor_system(
             "PHASE: Deepening. You already know the person's main struggle. "
             "Your job now is to understand their daily experience better. "
             "First acknowledge ONE specific thing they just said — something they actually mentioned. "
+            "If you feels problem is well understood and we have some good context coming up from the qdrant(our reference knowledge base) then add one just one sentence of context from the knowledge base it may include some consolation or some good example or some way to deal with it."
             "Then ask ONE simple, grounded question about their day-to-day life. "
             "Examples of good questions: 'What does your day feel like when this comes up?' or "
             "'Has this been going on for a while, or did something shift recently?' "
             "DO NOT ask philosophical or identity questions. "
             "DO NOT use therapy language like 'sense of control' or 'confidence'. "
-            "Max 2 sentences total."
+            "Max 2-3 sentences total."
         )
     
     if asked_topics:
