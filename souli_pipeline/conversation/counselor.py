@@ -126,8 +126,16 @@ Present practices as gentle invitations, not prescriptions.
 def _build_rag_context(chunks: List[Dict]) -> str:
     if not chunks:
         return ""
+    
+    # Only use chunks with decent relevance score
+    # Score below 0.50 means the knowledge base didn't find anything truly related
+    good_chunks = [c for c in chunks if c.get("score", 0) >= 0.50]
+    
+    if not good_chunks:
+        return ""  # Don't inject weak/irrelevant context
+    
     lines = ["[Style & Knowledge Reference — how Souli's counselor handles similar moments:]"]
-    for i, c in enumerate(chunks[:3], 1):
+    for i, c in enumerate(good_chunks[:3], 1):
         text = (c.get("text") or "").strip()
         if text:
             lines.append(f"{i}. {text[:400]}")
