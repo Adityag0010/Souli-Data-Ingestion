@@ -759,6 +759,16 @@ class ConversationEngine:
                     if t in low and t not in asked_topics:
                         asked_topics.append(t)
 
+        last_souli_question = ""
+        for m in reversed(self.state.messages):
+            if m["role"] == "assistant":
+                # Extract if there's a question mark — that's what Souli last asked
+                content = m["content"]
+                if "?" in content:
+                    last_souli_question = content
+                break
+
+
         try:
             return generate_counselor_response(
                 history=history,
@@ -772,6 +782,7 @@ class ConversationEngine:
                 user_name=self.state.user_name,
                 phase=self.state.phase,
                 asked_topics=asked_topics,
+                last_souli_question=last_souli_question,
             )
         except Exception as exc:
             logger.warning("Ollama response failed: %s — using fallback.", exc)

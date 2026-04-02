@@ -61,6 +61,7 @@ def _build_counselor_system(
     user_name: Optional[str] = None,
     phase: Optional[str] = None,
     asked_topics: Optional[List[str]] = None,
+    last_souli_question: Optional[str] = None,
 ) -> str:
 
     system = _COUNSELOR_SYSTEM_BASE
@@ -96,7 +97,12 @@ def _build_counselor_system(
             "DO NOT use therapy language like 'sense of control' or 'confidence'. "
             "Max 2-3 sentences total."
         )
-    
+
+    if last_souli_question:
+        context_additions.append(
+            f"Last thing Souli asked: {last_souli_question}\n"
+            "DO NOT ask the similar question again."
+        )
     if asked_topics:
         context_additions.append(f"Already discussed: {', '.join(asked_topics)}.")
 
@@ -212,6 +218,7 @@ def generate_counselor_response(
     user_name: Optional[str] = None,
     phase: Optional[str] = None,
     asked_topics: Optional[List[str]] = None,
+    last_souli_question: Optional[str] = None,
 ) -> str | Generator[str, None, None]:
     """
     Generate an empathetic counselor response using Ollama llama3.1 + RAG.
