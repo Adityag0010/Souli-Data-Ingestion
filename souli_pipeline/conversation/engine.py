@@ -204,8 +204,18 @@ class ConversationEngine:
         return response
 
     # ------------------------------------------------------------------
-    # Phase handlers (unchanged logic)
+    # Phase handlers 
     # ------------------------------------------------------------------
+    def _build_rag_query(self, current_text: str) -> str:
+        """
+        Combines last 2 problem messages + current message for a richer RAG query.
+        Handles turn continuations — e.g. turn 2 says 'relationship issues', 
+        turn 3 says 'small fights' — together they make a better search query.
+        """
+        recent = self.state.problem_messages[-2:]  # last 2 meaningful messages
+        parts = recent + [current_text]
+        combined = " ".join(parts)
+        return combined[-600:]
 
     def _handle_greeting(self, user_text: str, stream: bool):
         s = self.state
@@ -264,7 +274,9 @@ class ConversationEngine:
                 return reply + "\n\n" + follow_up
             return reply
 
-        rag = self._rag_retrieve(user_text, s.energy_node)
+        # Build RAG query from user text 
+        rag_query = self._build_rag_query(user_text)
+        rag = self._rag_retrieve(rag_query, s.energy_node)
         response = self._llm_response(user_text, rag, stream)
         s.phase = PHASE_DEEPENING
         return response
@@ -292,7 +304,8 @@ class ConversationEngine:
         if probe:
             probe_idx_list.append(len(probe_idx_list))
 
-        rag   = self._rag_retrieve(user_text, s.energy_node)
+        rag_query = self._build_rag_query(user_text)
+        rag   = self._rag_retrieve(rag_query, s.energy_node)
         reply = self._llm_response(user_text, rag, stream)
         if probe and isinstance(reply, str) and not stream:
             return reply + "\n\n" + probe
@@ -316,7 +329,8 @@ class ConversationEngine:
         if probe:
             probe_idx_list.append(len(probe_idx_list))
 
-        rag   = self._rag_retrieve(user_text, s.energy_node)
+        rag_query = self._build_rag_query(user_text)
+        rag   = self._rag_retrieve(rag_query, s.energy_node)
         reply = self._llm_response(user_text, rag, stream)
         if isinstance(reply, str) and not stream:
             if len(reply.strip()) < 30 and probe:
@@ -461,7 +475,8 @@ class ConversationEngine:
 
         if not sol:
             logger.warning("No framework solution for node '%s' — using LLM only", node)
-            rag = self._rag_retrieve(user_text, node)
+            rag_query = self._build_rag_query(user_text)
+            rag = self._rag_retrieve(rag_query, node)
             return self._llm_response(user_text, rag, stream)
 
         user_context = s.user_text_buffer.strip()
