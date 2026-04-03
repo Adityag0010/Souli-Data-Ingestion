@@ -149,7 +149,6 @@ services:
     volumes: *souli-volumes
     environment:
       <<: *souli-env
-      TRANSFORMERS_VERBOSITY: error
     command: [ "gunicorn", "souli_pipeline.api:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "3", "--bind", "0.0.0.0:8000", "--timeout", "120" ]
     ports:
       - "8000:8000" # Mobile app calls http://<VM_IP>:8000
@@ -189,6 +188,7 @@ services:
       - QDRANT_PORT=6333
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-souli_chunks}
       - SOULI_LOG_LEVEL=DEBUG
+      - TRANSFORMERS_VERBOSITY=error
     command: [ "streamlit", "run", "/app/souli_pipeline/streamlit_dev.py", "--server.port=8502", "--server.address=0.0.0.0" ]
     ports:
       - "8502:8502"
