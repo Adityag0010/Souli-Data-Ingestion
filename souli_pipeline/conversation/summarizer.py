@@ -8,6 +8,7 @@ to wrap up the intake/sharing phase and move toward intent/solution.
 from __future__ import annotations
 
 import logging
+import random
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -58,9 +59,10 @@ def build_dynamic_system_prompt(user_name: Optional[str] = None) -> str:
         f"Your tone is {style}. Summarize what you've understood, like a friend reflecting back, not a therapist. "
         f"\n\nSTRICT CONSTRAINTS:\n"
         f"1. Start with: '{opening}'\n"
-        f"2. ONE sentence only — name exactly what they're going through. "
-        f"   Reference something specific they said: a person, moment, or pattern they named. "
-        f"   Do NOT use generic phrases like 'you are struggling' or describe the energy node label.\n"
+        f"2. Write ONE clear summary sentence of their struggle. "
+        f"   ONLY use words and ideas from what they actually said — do not interpret or fill gaps. "
+        f"   If they only said they feel tired and overwhelmed, say exactly that. "
+        f"   Do NOT invent relationships, people, places, or situations they did not mention.\n"
         f"3. End with: '{closing}'\n"
         f"4. NO repeated reassurance. NO 'I hear you', 'That makes sense', 'You are not alone'. "
         f"   One small warm line max if needed — not more.\n"
