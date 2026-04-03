@@ -91,9 +91,9 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
     healthcheck:
       test: [ "CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1" ]
-      interval: 20s
+      interval: 30s
       timeout: 5s
-      retries: 5
+      retries: 3
 
   # ── Souli Streamlit UI (port 8501) ─────────────────────────────────────────
   souli:
@@ -149,6 +149,7 @@ services:
     volumes: *souli-volumes
     environment:
       <<: *souli-env
+      TRANSFORMERS_VERBOSITY: error
     command: [ "gunicorn", "souli_pipeline.api:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "3", "--bind", "0.0.0.0:8000", "--timeout", "120" ]
     ports:
       - "8000:8000" # Mobile app calls http://<VM_IP>:8000
