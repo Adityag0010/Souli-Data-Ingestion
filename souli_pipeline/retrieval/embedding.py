@@ -13,8 +13,11 @@ def _get_encoder(model_name: str = _DEFAULT_MODEL):
     if model_name in _encoders and _encoders[model_name] is not None:
         return _encoders[model_name]
     try:
-        from sentence_transformers import SentenceTransformer  # pip install sentence-transformers
-        enc = SentenceTransformer(model_name)
+        import torch
+        from sentence_transformers import SentenceTransformer
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("Loading embedding model: %s on device: %s", model_name, device)
+        enc = SentenceTransformer(model_name, device=device)
         _encoders[model_name] = enc
         return enc
     except Exception:

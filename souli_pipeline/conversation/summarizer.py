@@ -8,6 +8,7 @@ to wrap up the intake/sharing phase and move toward intent/solution.
 from __future__ import annotations
 
 import logging
+import random
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -17,16 +18,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+
+
 TONE_STYLES = [
-    "Gentle and reflective",
-    "Warm and soulful",
     "Direct and grounded",
-    "Deeply empathetic and quiet",
-    "Supportive and attentive"
+    "Warm but concise",
+    "Friendly and honest",
+    "Deeply empathetic and quiet in starting phase",
+    "Conversational and clear"
 ]
 
 OPENING_PHRASES = [
     "So from what you've shared, it sounds like",
+    "From what you've told me,",
     "I've been listening closely, and it feels like",
     "If I'm hearing you correctly, it sounds as though",
     "It seems like what's weighing on you is",
@@ -35,10 +39,10 @@ OPENING_PHRASES = [
 ]
 
 CLOSING_INVITATIONS = [
-    "Does that sit right with you? If it does, we can look at some ways to ease this, or we can just stay here if you have more to say.",
-    "Am I capturing that correctly? We can explore some support together whenever you're ready, or just keep talking.",
-    "Does that resonate? I'm here to help find a way forward, but there's no rush if you need to share more.",
-    "Is that how it feels for you? I'd love to help you find some balance, or we can simply hold this space a bit longer."
+    "Does that feel right? We can dig into some ways to work through this, or keep talking if there's more.",
+    "Am I getting that right? Happy to explore what might help, or just keep listening.",
+    "Does that match what you're feeling? We can look at what to do about it, or you can say more.",
+    "Sound about right? We can figure out a next step together, or just stay here a bit longer."
 ]
 
 
@@ -51,16 +55,18 @@ def build_dynamic_system_prompt(user_name: Optional[str] = None) -> str:
     name_clause = f"Address the user as {user_name}." if user_name else "Be intimate but respectful."
     
     return (
-        f"You are Souli, a warm empathetic companion. {name_clause} "
-        f"Your tone today is {style}. Your goal is to synthesize the user's situation. "
+        f"You are Souli — a warm, direct companion. {name_clause} "
+        f"Your tone is {style}. Summarize what you've understood, like a friend reflecting back, not a therapist. "
         f"\n\nSTRICT CONSTRAINTS:\n"
-        f"1. Start your response with a variation of: '{opening}...'\n"
-        f"2. Write ONE clear, heartfelt summary sentence of their struggle. "
-        f"   You MUST reference something specific they mentioned — a person, a place, a feeling they named. "
-        f"   Do NOT write a generic energy node description.\n"   # ← ADD THIS
-        f"3. End your response with this exact sentiment (but you may tweak the words slightly): '{closing}'\n"
-        f"4. Do NOT use robotic phrases like 'In summary' or 'To conclude'.\n"
-        f"5. Total response should be under 80 words."
+        f"1. Start with: '{opening}'\n"
+        f"2. Write ONE clear summary sentence of their struggle. "
+        f"   ONLY use words and ideas from what they actually said — do not interpret or fill gaps. "
+        f"   If they only said they feel tired and overwhelmed, say exactly that. "
+        f"   Do NOT invent relationships, people, places, or situations they did not mention.\n"
+        f"3. End with: '{closing}'\n"
+        f"4. NO repeated reassurance. NO 'I hear you', 'That makes sense', 'You are not alone'. "
+        f"   One small warm line max if needed — not more.\n"
+        f"5. Sound like a smart friend, not a formal therapist. Total under 70 words."
     )
 # ---------------------------------------------------------------------------
 # Main Summary Logic
@@ -70,6 +76,7 @@ def generate_summary(
     user_text_buffer: str,
     energy_node: Optional[str],
     user_name: Optional[str] = None,
+    problem_messages: Optional[list] = None,
     ollama_model: str = "llama3.1",
     ollama_endpoint: str = "http://localhost:11434",
     temperature: float = 0.75,
@@ -85,20 +92,27 @@ def generate_summary(
             model=ollama_model,
             endpoint=ollama_endpoint,
             temperature=temperature,
-            num_ctx=4096,
+            num_ctx=2048,
         )
 
         if not llm.is_available():
             logger.warning("Summary generation failed — using fallback.")
             return _fallback_summary(energy_node, user_name)
+        
+        
+        if problem_messages and len(problem_messages) >= 2:
+            content_to_summarize = "\n".join(f"- {m}" for m in problem_messages)
+        else:
+            content_to_summarize = user_text_buffer[:1500].strip()
 
         # Build the dynamic instructions
         system_instruction = build_dynamic_system_prompt(user_name)
 
         prompt = (
-            f"User's shared context:\n"
-            f"\"\"\"\n{user_text_buffer[:1500].strip()}\n\"\"\"\n\n"
-            f"Generate the empathetic summary and check-in now:"
+            f"Here is exactly what the user said, word for word:\n"
+            f"\"\"\"\n{content_to_summarize}\n\"\"\"\n\n"
+            f"Generate the empathetic but straight forward summary now. "
+            f"Only reference what is literally written above. Do not add anything else."
         )
 
         # Generate the entire block (Summary + Confirmation + CTA) in one go
@@ -125,8 +139,6 @@ def _fallback_summary(energy_node: Optional[str], user_name: Optional[str]) -> s
         f"Does that feel close to what you've been experiencing? "
         f"We can look at some ways to ease this together, or keep talking if there's more."
     )
-
-
 
 
 
@@ -227,7 +239,7 @@ def generate_node_reasoning(
             endpoint=ollama_endpoint,
             timeout_s=timeout_s,
             temperature=0.4,   # low temp — we want precise, not creative
-            num_ctx=1024,
+            num_ctx=2048,
         )
  
         if not llm.is_available():
