@@ -347,64 +347,94 @@ def get_session_state(session_id: str):
 
 # ── 5. Health Check ───────────────────────────────────────────────────────────
 
-@app.get("/health", response_model=HealthResponse, summary="Check API + service health")
-def health():
-    """
-    Check the health of the API and its dependencies.
-    The mobile app or load balancer can poll this endpoint.
-    Returns 200 if all services are up, 503 if something is down.
-    """
-    ollama_status = "unknown"
-    qdrant_status = "unknown"
-    config_loaded = False
+    import time
 
-    # Check config
-    try:
-        from souli_pipeline.config_loader import load_config
-        load_config(CONFIG_PATH)
-        config_loaded = True
-    except Exception as exc:
-        logger.warning("Config load failed: %s", exc)
+    # Module-level cache — lives for the lifetime of each worker process
+    _health_cache = {
+        "status": None,
+        "ollama": "unknown", 
+        "qdrant": "unknown",
+        "config_loaded": False,
+        "last_checked": 0,
+    }
+    _HEALTH_CACHE_TTL = 60  # only re-check every 60 seconds per worker
 
-    # Check Ollama
-    try:
-        from souli_pipeline.llm.ollama import OllamaLLM
-        ollama_endpoint = os.environ.get("OLLAMA_ENDPOINT", "http://localhost:11434")
-        llm = OllamaLLM(endpoint=ollama_endpoint)
-        ollama_status = "ok" if llm.is_available() else "unreachable"
-    except Exception:
-        ollama_status = "error"
+    @app.get("/health", response_model=HealthResponse, summary="Check API + service health")
+    def health():
+        global _health_cache
+        
+        now = time.time()
+        # Return cached result if checked recently
+        if _health_cache["status"] is not None and (now - _health_cache["last_checked"]) < _HEALTH_CACHE_TTL:
+            overall = _health_cache["status"]
+            response_status = 200 if overall == "ok" else 503
+            return Response(
+                content=HealthResponse(
+                    status=overall,
+                    ollama=_health_cache["ollama"],
+                    qdrant=_health_cache["qdrant"],
+                    config_loaded=_health_cache["config_loaded"],
+                ).model_dump_json(),
+                media_type="application/json",
+                status_code=response_status,
+            )
 
-    # Check Qdrant
-    try:
-        from qdrant_client import QdrantClient
-        from souli_pipeline.config_loader import load_config
-        cfg = load_config(CONFIG_PATH)
-        qc = QdrantClient(
-            host=cfg.retrieval.qdrant_host,
-            port=cfg.retrieval.qdrant_port,
-            timeout=3,
+        # Cache expired — do the real check
+        ollama_status = "unknown"
+        qdrant_status = "unknown"
+        config_loaded = False
+
+        try:
+            from souli_pipeline.config_loader import load_config
+            load_config(CONFIG_PATH)
+            config_loaded = True
+        except Exception as exc:
+            logger.warning("Config load failed: %s", exc)
+
+        try:
+            from souli_pipeline.llm.ollama import OllamaLLM
+            ollama_endpoint = os.environ.get("OLLAMA_ENDPOINT", "http://localhost:11434")
+            llm = OllamaLLM(endpoint=ollama_endpoint)
+            ollama_status = "ok" if llm.is_available() else "unreachable"
+        except Exception:
+            ollama_status = "error"
+
+        try:
+            from qdrant_client import QdrantClient
+            from souli_pipeline.config_loader import load_config
+            cfg = load_config(CONFIG_PATH)
+            qc = QdrantClient(
+                host=cfg.retrieval.qdrant_host,
+                port=cfg.retrieval.qdrant_port,
+                timeout=3,
+            )
+            qc.get_collections()
+            qdrant_status = "ok"
+        except Exception:
+            qdrant_status = "unreachable"
+
+        overall = "ok" if (ollama_status == "ok" and qdrant_status == "ok") else "degraded"
+
+        # Update cache
+        _health_cache.update({
+            "status": overall,
+            "ollama": ollama_status,
+            "qdrant": qdrant_status,
+            "config_loaded": config_loaded,
+            "last_checked": now,
+        })
+
+        response_status = 200 if overall == "ok" else 503
+        return Response(
+            content=HealthResponse(
+                status=overall,
+                ollama=ollama_status,
+                qdrant=qdrant_status,
+                config_loaded=config_loaded,
+            ).model_dump_json(),
+            media_type="application/json",
+            status_code=response_status,
         )
-        qc.get_collections()
-        qdrant_status = "ok"
-    except Exception:
-        qdrant_status = "unreachable"
-
-    overall = "ok" if (ollama_status == "ok" and qdrant_status == "ok") else "degraded"
-
-    response_status = 200 if overall == "ok" else 503
-    return Response(
-        content=HealthResponse(
-            status=overall,
-            ollama=ollama_status,
-            qdrant=qdrant_status,
-            config_loaded=config_loaded,
-        ).model_dump_json(),
-        media_type="application/json",
-        status_code=response_status,
-    )
-
-
 # ── 6. Greeting (convenience for first-open in mobile app) ───────────────────
 
 @app.post("/session/greeting", response_model=ChatResponse, summary="Get opening greeting for a new session")
