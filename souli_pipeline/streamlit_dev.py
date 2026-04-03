@@ -212,7 +212,7 @@ hr { border-color: #e2e8f0 !important; }
 # ═════════════════════════════════════════════════════════════════════════════
 
 if "kb_mode" not in st.session_state:
-    st.session_state.kb_mode = "original"   # "original" | "improved"
+    st.session_state.kb_mode = "improved"   # "original" | "improved"
 
 def _active_collection() -> str:
     return (

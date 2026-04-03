@@ -27,7 +27,7 @@ class OllamaLLM:
         endpoint: str = "http://localhost:11434",
         timeout_s: int = 120,
         temperature: float = 0.7,
-        num_ctx: int = 4096,
+        num_ctx: int = 2048,
     ):
         self.model = model
         self.endpoint = endpoint.rstrip("/")
