@@ -277,7 +277,7 @@ def generate_solution_response(
         model=ollama_model,
         endpoint=ollama_endpoint,
         temperature=temperature,
-        num_ctx=4096,
+        num_ctx=2048,
     )
 
     prompt = _build_solution_prompt(energy_node, framework_solution, user_context)

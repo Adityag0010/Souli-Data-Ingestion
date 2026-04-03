@@ -92,7 +92,7 @@ def generate_summary(
             model=ollama_model,
             endpoint=ollama_endpoint,
             temperature=temperature,
-            num_ctx=4096,
+            num_ctx=2048,
         )
 
         if not llm.is_available():
@@ -239,7 +239,7 @@ def generate_node_reasoning(
             endpoint=ollama_endpoint,
             timeout_s=timeout_s,
             temperature=0.4,   # low temp — we want precise, not creative
-            num_ctx=1024,
+            num_ctx=2048,
         )
  
         if not llm.is_available():
