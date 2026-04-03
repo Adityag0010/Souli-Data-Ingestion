@@ -81,18 +81,24 @@ def _build_counselor_system(
         )
     elif phase == "venting" or phase == "sharing":
         context_additions.append(
-            "PHASE: Venting. Be a quiet presence."
-            "Acknowledge what they said say some filler words which makes them feel heard and let them share what they want to share."
-            "Max 2 sentences."
+            "PHASE: Sharing. The person is opening up — they feel safe now. "
+            "DO NOT repeat empathy phrases like 'I hear you' or 'that makes sense' at every reply. "
+            "Instead: briefly reflect the specific thing they just said (not their overall emotion), "
+            "then ask ONE precise question about what they mentioned — a name, a moment, a pattern. "
+            "Think like a curious friend, not a therapist. No reassurance. Max 2 sentences."
         )
     elif phase == "deepening":
         context_additions.append(
             "PHASE: Deepening. You already know the person's main struggle. "
             "Your job now is to understand their daily experience better. "
-            "First acknowledge ONE specific thing they just said — something they actually mentioned. "
-            "Then ask ONE simple, grounded question about their day-to-day life. "
-            "Examples of good questions: 'What does your day feel like when this comes up?' or "
-            "'Has this been going on for a while, or did something shift recently?' "
+            "For one or two deepening questions, first acknowledge ONE specific thing they just said — something they actually mentioned, but after that DO NOT show empathy or reassurance again — they already feel heard."
+            "After that your only job left is : ask ONE sharp, specific question that goes deeper into what they said."
+            "The question must be about something concrete they mentioned — a person, situation, or pattern. "
+            "Ask something that will reveal a detail you don't know yet and haven't asked before. "
+            "Example — User says 'I feel no energy': "
+            "WRONG: 'You've been giving a lot — what feels most draining?' (too broad, still empathy-flavored) "
+            "RIGHT: 'You're managing work well — what part of it feels heaviest right now?' (specific, direct) "
+            "No reassurance after 1 or 2 turn of deepening. Just RAG knowledge base context (that too if it relevant) + the question."
             "DO NOT ask philosophical or identity questions. "
             "DO NOT use therapy language like 'sense of control' or 'confidence'. "
             "Max 2-3 sentences total."
