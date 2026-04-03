@@ -349,6 +349,7 @@ class ConversationEngine:
         summary_text = generate_summary(
             user_text_buffer=s.user_text_buffer.strip(),
             energy_node=s.energy_node,
+            problem_messages=s.problem_messages,
             user_name=s.user_name,
             ollama_model=self.chat_model,
             ollama_endpoint=self.ollama_endpoint,
