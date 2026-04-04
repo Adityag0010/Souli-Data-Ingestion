@@ -770,7 +770,14 @@
         // ════════════════════════════════════════════════════════════
         async function checkHealth() {
             try {
-                const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(5000) });
+                // Use /session/greeting as a lightweight ping — /health endpoint not available
+                const fd = new FormData();
+                fd.append('session_id', 'healthcheck-ping');
+                const r = await fetch(`${API}/session/greeting`, {
+                    method: 'POST',
+                    body: fd,
+                    signal: AbortSignal.timeout(6000)
+                });
                 const dot = document.getElementById('statusDot');
                 const lbl = document.getElementById('statusLabel');
                 if (r.ok) {
@@ -780,12 +787,12 @@
                 } else {
                     dot.className = 'status-dot err';
                     lbl.textContent = `API ${r.status}`;
-                    log(`⚠️ Health check returned ${r.status}`, 'warn');
+                    log(`⚠️ API returned ${r.status}`, 'warn');
                 }
             } catch (e) {
                 document.getElementById('statusDot').className = 'status-dot err';
                 document.getElementById('statusLabel').textContent = 'API Offline';
-                log(`❌ Cannot reach ${API}/health — is the FastAPI running? (${e.message})`, 'error');
+                log(`❌ Cannot reach API at ${API} — is FastAPI running? (${e.message})`, 'error');
             }
         }
 
