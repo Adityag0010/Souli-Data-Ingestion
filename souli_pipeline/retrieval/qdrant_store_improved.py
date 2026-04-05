@@ -45,7 +45,7 @@ def _content_uuid(text: str, source: str) -> str:
 def _get_qdrant_client(host: str = "localhost", port: int = 6333):
     try:
         from qdrant_client import QdrantClient
-        client = QdrantClient(host=host, port=port, timeout=5)
+        client = QdrantClient(host=host, port=port, timeout=8)
         client.get_collections()
         return client
     except Exception:

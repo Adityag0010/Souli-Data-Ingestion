@@ -626,14 +626,14 @@ class ConversationEngine:
             _probe = OllamaLLM(
                 model=self.tagger_model,
                 endpoint=self.ollama_endpoint,
-                timeout_s=3,
+                timeout_s=6,
             )
             if _probe.is_available():
                 tag_result = tag_chunk(
                     rolling_context,
                     ollama_model=self.tagger_model,
                     ollama_endpoint=self.ollama_endpoint,
-                    timeout_s=8,
+                    timeout_s=10,
                 )
                 raw_node = tag_result.get("energy_node", "")
                 tagger_reason = tag_result.get("reason", "")
