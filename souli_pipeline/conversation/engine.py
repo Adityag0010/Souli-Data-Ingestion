@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+import random
 from dataclasses import dataclass, field
 from typing import Dict, Generator, List, Optional
 
@@ -239,17 +240,40 @@ class ConversationEngine:
         s.phase = PHASE_INTAKE
 
         if name and not shared_feelings:
-            return f"Lovely to meet you, {name}. How are you feeling today?"
+            responses = [
+                f"Really glad you're here, {name} 🤍 What's been on your mind lately?",
+                f"Good to meet you, {name}. What's been going on in your world?",
+                f"Hey {name} 🌿 What's been pulling at you lately?",
+                f"Nice to meet you, {name}. What would you like to talk about today?",
+                f"Lovely to have you here, {name}. What's been sitting with you?",
+                f"Glad you reached out, {name}. What's been on your heart lately?",
+                f"Good to have you here, {name} 🌊 What's been taking up space in your mind?",
+            ]
+            return random.choice(responses)
+
         elif name and shared_feelings:
-            return (
-                f"I hear you, {name}. I'm glad you're here. "
-                f"Tell me more — what's been going on?"
-            )
+            responses = [
+                f"Glad you're here, {name}. Tell me more — what's been going on?",
+                f"I hear that, {name} 🤍 What's been the heaviest part of it?",
+                f"Thanks for sharing that, {name}. What's been sitting with you the most?",
+                f"You're not alone in this, {name}. What's been weighing on you?",
+                f"Really glad you said something, {name}. What's been going on for you?",
+                f"That sounds like a lot, {name} 🌿 What's been the hardest part?",
+                f"I'm here, {name}. What would you like to start with?",
+            ]
+            return random.choice(responses)
+
         else:
-            return (
-                "I hear you. I'm glad you reached out. "
-                "Tell me more — what's been going on for you?"
-            )
+            responses = [
+                "Really glad you reached out. What's been on your mind?",
+                "Good to have you here. What's been going on for you lately?",
+                "Glad you're here. What's been sitting with you?",
+                "Thanks for showing up. What would you like to talk about?",
+                "I'm here with you. What's been taking up space in your heart lately?",
+                "Good that you reached out 🤍 What's been going on?",
+                "I'm listening. What's been weighing on you?",
+            ]
+            return random.choice(responses)
 
     def _handle_intake(self, user_text: str, stream: bool):
         s = self.state
