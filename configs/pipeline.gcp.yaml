@@ -105,6 +105,26 @@ conversation:
   max_intake_turns: 4
   temperature: 0.75
 
+multi_ingestion:
+  # General semantic collection (shared with improved pipeline)
+  general_collection: "souli_chunks_improved"
+ 
+  # 5 typed specialist collections — one per content type
+  healing_collection:    "souli_healing"
+  activities_collection: "souli_activities"
+  stories_collection:    "souli_stories"
+  commitment_collection: "souli_commitment"
+  patterns_collection:   "souli_patterns"
+ 
+  # How long to wait for each extractor LLM call (seconds)
+  # Increase if you have long videos and a slow machine
+  extractor_timeout_s: 180
+ 
+  # Minimum keyword hits for density fallback to mark a type as "rich"
+  # (only used when Ollama is unavailable)
+  density_keyword_threshold: 3
+
+
 # Voice pipeline — LiveKit Cloud (free tier) or self-hosted on GCE
 # Values injected from .env via env vars: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
 voice:

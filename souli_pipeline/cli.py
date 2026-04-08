@@ -106,6 +106,47 @@ def run_youtube_improved(
         print(f"  - {k}: {v}")
 
 
+@run_app.command("multi-ingestion")
+def run_multi_ingestion(
+    config: str = typer.Option(..., "--config", "-c"),
+    youtube_url: str = typer.Option(..., "--youtube-url"),
+    whisper_model: str = typer.Option("medium", "--whisper-model"),
+    similarity_threshold: float = typer.Option(0.45, "--similarity-threshold",
+                                               help="Topic boundary sensitivity (lower = more chunks)"),
+    source_label: str = typer.Option("", "--source-label",
+                                     help="Human-readable label for this video in Qdrant payloads"),
+    skip_persona: bool = typer.Option(False, "--skip-persona",
+                                      help="Skip persona extraction (faster for testing)"),
+    skip_ingest: bool = typer.Option(False, "--skip-ingest",
+                                     help="Produce extraction files only — skip all Qdrant ingestion"),
+    general_collection: str = typer.Option("souli_chunks_improved", "--general-collection",
+                                           help="Name for the general semantic collection"),
+    persona_path: str = typer.Option("data/coach_persona.txt", "--persona-path"),
+):
+    """Run multi-collection ingestion: Whisper → clean → extract → 6 Qdrant collections in one go."""
+    cfg = load_config(config)
+    rid = get_run_id()
+    out_dir = os.path.join(cfg.run.outputs_dir, rid, "multi_ingestion", "video_001")
+
+    from .youtube.multi_data_ingestion_improved import run_multi_ingestion_pipeline
+
+    outputs = run_multi_ingestion_pipeline(
+        cfg=cfg,
+        youtube_url=youtube_url,
+        out_dir=out_dir,
+        source_label=source_label,
+        whisper_model=whisper_model,
+        similarity_threshold=similarity_threshold,
+        general_collection=general_collection,
+        persona_path=persona_path,
+        skip_persona=skip_persona,
+        skip_ingest=skip_ingest,
+    )
+    print("[green]Multi-ingestion pipeline done.[/green]")
+    for k, v in outputs.items():
+        print(f"  - {k}: {v}")
+
+
 @run_app.command("playlist")
 def run_playlist(
     config: str = typer.Option(..., "--config", "-c"),

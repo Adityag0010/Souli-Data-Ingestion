@@ -97,6 +97,24 @@ class ConversationConfig(BaseModel):
     temperature: float = 0.75
 
 
+class MultiIngestionConfig(BaseModel):
+    """Settings for the multi-collection ingestion pipeline."""
+    # General semantic collection (same as existing improved pipeline)
+    general_collection: str = "souli_chunks_improved"
+    # 5 typed specialist collections
+    healing_collection:    str = "souli_healing"
+    activities_collection: str = "souli_activities"
+    stories_collection:    str = "souli_stories"
+    commitment_collection: str = "souli_commitment"
+    patterns_collection:   str = "souli_patterns"
+    # Timeout for each extractor LLM call (seconds)
+    extractor_timeout_s: int = 180
+    # Minimum chunks from density detection to consider a type "rich"
+    # (used by keyword fallback — LLM detection uses its own judgement)
+    density_keyword_threshold: int = 3
+ 
+
+
 class VoiceConfig(BaseModel):
     """LiveKit voice pipeline settings."""
     livekit_url: str = "ws://localhost:7880"
@@ -119,3 +137,4 @@ class PipelineConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     conversation: ConversationConfig = Field(default_factory=ConversationConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    multi_ingestion: MultiIngestionConfig = Field(default_factory=MultiIngestionConfig)

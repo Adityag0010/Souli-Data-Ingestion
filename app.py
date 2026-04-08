@@ -33,6 +33,7 @@ def main():
         [
             "🥇 Gold Data Viewer",
             "🚀 Data Ingestion (Improved)",
+            "🧬 Multi-Collection Ingestion",
             "🎬 Data Ingestion",
             "💬 Chatbot Testing",
             "🔬 Dev Testing",
@@ -55,6 +56,9 @@ def main():
     elif page == "🔬 Dev Testing":
         from pages import dev_testing
         dev_testing.show()
+    elif page == "🧬 Multi-Collection Ingestion":
+        from pages import multi_data_ingestion_improved
+        multi_data_ingestion_improved.show()
 
 if __name__ == "__main__":
     main()
